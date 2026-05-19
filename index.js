@@ -495,6 +495,7 @@ client.once(Events.ClientReady, async () => {
       .setDescription('View the top ARCUS operators');
 
   const commands = [commandData.toJSON(), profileCommand.toJSON(), leaderboardCommand.toJSON()];
+  const commandNames = commands.map(command => `/${command.name}`).join(', ');
 
   try {
     const guilds = client.guilds.cache.map(g => g.id);
@@ -504,11 +505,16 @@ client.once(Events.ClientReady, async () => {
       return;
     }
 
+    console.log('ARCUS: Clearing stale global commands...');
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] })
       .catch(err => console.error('Global command cleanup failed:', err));
 
     for (const gId of guilds) {
-      console.log(`ARCUS: Syncing commands for Guild: ${gId}`);
+      console.log(`ARCUS: Clearing guild commands for Guild: ${gId}`);
+      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gId), { body: [] })
+        .catch(err => console.error(`Guild command cleanup failed for ${gId}:`, err));
+
+      console.log(`ARCUS: Syncing commands for Guild: ${gId}: ${commandNames}`);
       await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gId), { body: commands })
         .catch(err => console.error(`Command Sync Failed for ${gId}:`, err));
     }
