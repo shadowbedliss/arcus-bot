@@ -149,6 +149,23 @@ const ranks = [ // Ranks are based on 'attended' (completed) operations
   { name: 'Captain', minAttended: 10, minLed: 3, minRecruits: 4 }
 ];
 
+function getRank(member, stats) {
+  let currentRank = null;
+  if (member) {
+    // Get all roles from cache, but also handle the possibility of raw IDs
+    const roleCache = member.roles.cache;
+    if (roleCache && roleCache.size > 0) {
+      const roleNames = roleCache.map(role => role.name.toLowerCase().trim());
+      // Check if any of our rank names match the user's roles
+      currentRank = [...ranks].reverse().find(r => roleNames.includes(r.name.toLowerCase().trim()));
+    }
+  }
+  if (!currentRank) {
+    currentRank = [...ranks].reverse().find(r => (stats.attended || 0) >= r.minAttended) || ranks[0];
+  }
+  return currentRank;
+}
+
 
 function formatSquadListing(op, guildId) {
   const lines = [];
@@ -664,13 +681,16 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       if (interaction.options.getSubcommand() === 'stats') {
         const data = loadData();
         const target = interaction.options.getUser('target') || interaction.user;
-        const stats = data.users[target.id] || { joined: 0, attended: 0 };
+        const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null);
+        const stats = ensureUserStats(data, target.id);
         const ratio = stats.joined > 0 ? Math.round((stats.attended / stats.joined) * 100) : 0;
+        const currentRank = getRank(targetMember, stats);
 
         const embed = new EmbedBuilder()
-          .setTitle(`ARCUS Service Record: ${target.username}`)
+          .setTitle(`ARCUS Service Record: ${targetMember?.nickname || target.username}`)
           .setThumbnail(target.displayAvatarURL())
           .addFields(
+            { name: 'Rank', value: `**${currentRank.name}**`, inline: true },
             { name: 'Operations Joined', value: stats.joined.toString(), inline: true },
             { name: 'Operations Attended', value: stats.attended.toString(), inline: true },
             { name: 'Attendance Rating', value: `${ratio}%`, inline: true }
@@ -691,16 +711,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
         const stats = ensureUserStats(data, targetUser.id);
         const ratio = stats.joined > 0 ? Math.round((stats.attended / stats.joined) * 100) : 0;
 
-        let currentRank = null;
-        if (targetMember) {
-          currentRank = [...ranks].reverse().find(r => 
-            targetMember.roles.cache.some(role => role.name.toLowerCase() === r.name.toLowerCase())
-          );
-        }
-        if (!currentRank) {
-          currentRank = [...ranks].reverse().find(r => (stats.attended || 0) >= r.minAttended) || ranks[0];
-        }
-
+        const currentRank = getRank(targetMember, stats);
         const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null;
         let progress = '\n*Max Rank Achieved*';
         if (nextRank) {
@@ -750,16 +761,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
           const member = await interaction.guild.members.fetch(entry.id).catch(() => null); // Fetch GuildMember for nickname
           const finalName = member?.nickname || user.username; // Use nickname if available
           const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `\`[${i + 1}]\``;
-          
-          let rank = null;
-          if (member) {
-            rank = [...ranks].reverse().find(r => 
-              member.roles.cache.some(role => role.name.toLowerCase() === r.name.toLowerCase())
-            );
-          }
-          if (!rank) {
-            rank = [...ranks].reverse().find(r => (entry.attended || 0) >= r.minAttended) || ranks[0];
-          }
+          const rank = getRank(member, entry);
 
           leaderboardText += `${medal} **${finalName}** — ${rank.name} (${entry.xp || 0} XP)\n`; // FIX: Use finalName and remove duplicate line
         }
