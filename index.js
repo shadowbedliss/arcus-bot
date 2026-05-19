@@ -29,6 +29,8 @@ if (!process.env.TOKEN || !process.env.CLIENT_ID) {
 }
 const TOKEN = process.env.TOKEN.trim();
 const CLIENT_ID = process.env.CLIENT_ID.trim();
+const CREATION_SESSION_TIMEOUT_MS = 5 * 60 * 1000;
+const creationSessions = new Map();
 
 // --- Stricter Token Validation ---
 if (TOKEN.includes('your_bot_token_here') || TOKEN.length < 50) {
@@ -89,6 +91,37 @@ function loadData() {
 
 function saveData(data) {
   fs.writeJsonSync(DATA_FILE, data, { spaces: 2 });
+}
+
+function createOperationSession(userId, guildId, channelId) {
+  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const timeout = setTimeout(() => creationSessions.delete(id), CREATION_SESSION_TIMEOUT_MS);
+  creationSessions.set(id, {
+    userId,
+    guildId,
+    channelId,
+    expiresAt: Date.now() + CREATION_SESSION_TIMEOUT_MS,
+    timeout
+  });
+  return id;
+}
+
+function getOperationSession(sessionId, userId) {
+  const session = creationSessions.get(sessionId);
+  if (!session || session.userId !== userId || Date.now() > session.expiresAt) {
+    if (session) {
+      clearTimeout(session.timeout);
+      creationSessions.delete(sessionId);
+    }
+    return null;
+  }
+  return session;
+}
+
+function closeOperationSession(sessionId) {
+  const session = creationSessions.get(sessionId);
+  if (session) clearTimeout(session.timeout);
+  creationSessions.delete(sessionId);
 }
 
 // --- Logic Helpers ---
@@ -538,15 +571,17 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
 
         const guildConfig = getGuildConfig(interaction.guildId);
         const targetChannelId = guildConfig.operationsChannelId || interaction.channelId;
+        let sessionId = null;
 
         try {
+          sessionId = createOperationSession(interaction.user.id, interaction.guildId, targetChannelId);
           const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-              .setCustomId(`op:setup:${interaction.guildId}:${targetChannelId}`)
+              .setCustomId(`op:setup:${sessionId}`)
               .setLabel('đź“ť Setup Operation')
               .setStyle(ButtonStyle.Primary),
             new ButtonBuilder()
-              .setCustomId(`op:template_list:${interaction.guildId}:${targetChannelId}`)
+              .setCustomId(`op:template_list:${sessionId}`)
               .setLabel('đź“‚ Use Template')
               .setStyle(ButtonStyle.Secondary)
               .setDisabled(!(guildConfig.templates && guildConfig.templates.length > 0))
@@ -560,6 +595,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
           await interaction.user.send({ embeds: [dmEmbed], components: [row] }); // Await is fine here as interactionCreate is async
           return interaction.reply({ content: 'ARCUS: Configuration menu sent to your DMs.', flags: [MessageFlags.Ephemeral] }); // FIX: Use flags
         } catch (err) {
+          if (sessionId) closeOperationSession(sessionId);
           console.error('ARCUS: DM failed:', err);
           return interaction.reply({ content: 'ARCUS: Could not DM you. Please ensure your DMs are open.', flags: [MessageFlags.Ephemeral] }); // FIX: Use flags
         }
@@ -885,18 +921,22 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
 
     // Handle template_list button (from /op create DM) - This is an initial response (showing a modal), so no deferUpdate() needed here.
     if (namespace === 'op' && action === 'template_list') { // FIX: Added missing closing brace
-      const guildId = parts[2] || interaction.guildId;
-      const targetChannelId = parts[3];
+      const session = getOperationSession(targetId, interaction.user.id);
+      if (!session) {
+        return interaction.reply({ content: 'ARCUS: Operation creation expired. Run `/op create` again.', flags: [MessageFlags.Ephemeral] });
+      }
+      const guildId = session.guildId;
+      const targetChannelId = session.channelId;
 
       const guildConfig = getGuildConfig(guildId);
       const options = guildConfig.templates.map((t, idx) => ({
         label: t.name,
         description: t.description.substring(0, 50),
-        value: `template_${idx}_${guildId || 'null'}_${targetChannelId}`
+        value: `template_${idx}`
       }));
 
       const select = new StringSelectMenuBuilder()
-        .setCustomId(`op:load_template`)
+        .setCustomId(`op:load_template:${targetId}`)
         .setPlaceholder('Select a template to use')
         .addOptions(options);
 
@@ -966,11 +1006,13 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
     if (namespace === 'op' && action === 'setup') {
       // Use try-catch for DM interactions as they can fail if the user has DMs closed
       try {
-        const guildId = parts[2] || interaction.guildId;
-        const sourceChannelId = parts[3];
+        const session = getOperationSession(targetId, interaction.user.id);
+        if (!session) {
+          return interaction.reply({ content: 'ARCUS: Operation creation expired. Run `/op create` again.', flags: [MessageFlags.Ephemeral] });
+        }
 
         const modal = new ModalBuilder()
-          .setCustomId(`op:modal:submit:${guildId}:${sourceChannelId}`)
+          .setCustomId(`op:modal:submit:${targetId}`)
           .setTitle('ARCUS: New Operation Configuration');
 
         const nameInput = new TextInputBuilder().setCustomId('op_name').setLabel("Operation Name").setStyle(TextInputStyle.Short).setRequired(true);
@@ -1114,17 +1156,21 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       const customId = interaction.customId;
       const parts = customId.split(':');
 
-      if (customId === 'op:load_template') {
+      if (parts[0] === 'op' && parts[1] === 'load_template') {
+      const sessionId = parts[2];
+      const session = getOperationSession(sessionId, interaction.user.id);
+      if (!session) {
+        return interaction.reply({ content: 'ARCUS: Operation creation expired. Run `/op create` again.', flags: [MessageFlags.Ephemeral] });
+      }
       const vals = interaction.values[0].split('_');
       const idx = vals[1];
-      const guildId = vals.length > 3 ? vals[2] : null;
-      const channelId = vals.length > 3 ? vals[3] : vals[2]; // FIX: Corrected parsing for guildId and channelId
-      
+      const guildId = session.guildId;
+
       const guildConfig = getGuildConfig(guildId);
       const template = guildConfig.templates[parseInt(idx)];
 
       const modal = new ModalBuilder()
-        .setCustomId(`op:modal:submit:${guildId || 'null'}:${channelId}`)
+        .setCustomId(`op:modal:submit:${sessionId}`)
         .setTitle(`ARCUS: Template - ${template.name}`);
 
       modal.addComponents(
@@ -1291,9 +1337,13 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
     }
 
     if (parts[1] === 'modal' && parts[2] === 'submit') {
-      // Support both legacy 4-part and new 5-part IDs
-      const guildId = parts[3]; // FIX: Corrected parsing for guildId
-      const channelId = parts[4]; // FIX: Corrected parsing for channelId
+      const sessionId = parts[3];
+      const session = getOperationSession(sessionId, interaction.user.id);
+      if (!session) {
+        return interaction.reply({ content: 'ARCUS: Operation creation expired. Run `/op create` again.', flags: [MessageFlags.Ephemeral] });
+      }
+      const guildId = session.guildId;
+      const channelId = session.channelId;
 
       const name = interaction.fields.getTextInputValue('op_name');
       const time = interaction.fields.getTextInputValue('op_time');
@@ -1368,6 +1418,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       op.messageId = msg.id;
       data.operations[opId] = op;
       saveData(data);
+      closeOperationSession(sessionId);
       return interaction.reply({ content: `ARCUS: Operation **${name}** created in <#${channelId}>.`, flags: [MessageFlags.Ephemeral] });
     }
     }
