@@ -96,6 +96,9 @@ async function main() {
   const commandNames = commands.map(command => `/${command.name}`).join(', ');
   const rest = new REST({ version: '10' }).setToken(TOKEN);
 
+  const globalBefore = await rest.get(Routes.applicationCommands(CLIENT_ID));
+  console.log(`ARCUS: Global commands before cleanup: ${globalBefore.map(command => `/${command.name}`).join(', ') || 'none'}`);
+
   console.log('ARCUS: Clearing global commands...');
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
 
@@ -105,12 +108,21 @@ async function main() {
   }
 
   for (const guildId of guildIds) {
+    const guildBefore = await rest.get(Routes.applicationGuildCommands(CLIENT_ID, guildId));
+    console.log(`ARCUS: Guild ${guildId} commands before cleanup: ${guildBefore.map(command => `/${command.name}`).join(', ') || 'none'}`);
+
     console.log(`ARCUS: Clearing guild commands for ${guildId}...`);
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, guildId), { body: [] });
 
     console.log(`ARCUS: Deploying commands to ${guildId}: ${commandNames}`);
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, guildId), { body: commands });
+
+    const guildAfter = await rest.get(Routes.applicationGuildCommands(CLIENT_ID, guildId));
+    console.log(`ARCUS: Guild ${guildId} commands after deploy: ${guildAfter.map(command => `/${command.name}`).join(', ') || 'none'}`);
   }
+
+  const globalAfter = await rest.get(Routes.applicationCommands(CLIENT_ID));
+  console.log(`ARCUS: Global commands after cleanup: ${globalAfter.map(command => `/${command.name}`).join(', ') || 'none'}`);
 
   console.log('ARCUS: Command deploy complete.');
 }

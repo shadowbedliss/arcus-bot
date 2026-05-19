@@ -506,17 +506,15 @@ client.once(Events.ClientReady, async () => {
     }
 
     console.log('ARCUS: Clearing stale global commands...');
-    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] })
-      .catch(err => console.error('Global command cleanup failed:', err));
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
 
     for (const gId of guilds) {
       console.log(`ARCUS: Clearing guild commands for Guild: ${gId}`);
-      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gId), { body: [] })
-        .catch(err => console.error(`Guild command cleanup failed for ${gId}:`, err));
+      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gId), { body: [] });
 
       console.log(`ARCUS: Syncing commands for Guild: ${gId}: ${commandNames}`);
-      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gId), { body: commands })
-        .catch(err => console.error(`Command Sync Failed for ${gId}:`, err));
+      const registered = await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gId), { body: commands });
+      console.log(`ARCUS: Registered for Guild ${gId}: ${registered.map(command => `/${command.name}`).join(', ')}`);
     }
     console.log('ARCUS: All guild commands synchronized.');
   } catch (error) {
