@@ -1,5 +1,4 @@
 ﻿// ARCUS: Operations Management Bot - Full Stable Rework
-﻿// ARCUS: Operations Management Bot - Full Stable Rework
 require('dotenv').config();
 const {
   Client,

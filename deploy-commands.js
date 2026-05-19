@@ -66,19 +66,17 @@ function buildCommands() {
         .addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true))
         .addStringOption(o => o.setName('report').setDescription('The mission summary').setRequired(true)))
     .addSubcommand(sub =>
+      sub.setName('profile')
+        .setDescription('View an ARCUS operational service record')
+        .addUserOption(opt => opt.setName('target').setDescription('The user to view').setRequired(false)))
+    .addSubcommand(sub =>
+      sub.setName('leaderboard')
+        .setDescription('View the top ARCUS operators'))
+    .addSubcommand(sub =>
       sub.setName('clear_stats')
         .setDescription('Admin: Permanently wipe all attendance statistics'));
 
-  const profileCommand = new SlashCommandBuilder()
-    .setName('profile')
-    .setDescription('View an ARCUS operational service record')
-    .addUserOption(opt => opt.setName('target').setDescription('The user to view').setRequired(false));
-
-  const leaderboardCommand = new SlashCommandBuilder()
-    .setName('leaderboard')
-    .setDescription('View the top ARCUS operators');
-
-  return [opCommand.toJSON(), profileCommand.toJSON(), leaderboardCommand.toJSON()];
+  return [opCommand.toJSON()];
 }
 
 function getGuildIds() {
