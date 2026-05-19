@@ -75,7 +75,8 @@ function getGuildConfig(guildId) {
       maxSquadSize: 4,
       selectableRoles: ["Point Man", "Overwatch", "Medic", "Demolitions"],
       templates: [],
-      defaultRole: "Point Man"
+      defaultRole: "Point Man",
+      rankRequirements: defaultRanks
     };
     saveConfig();
   }
@@ -191,13 +192,43 @@ function parseOpTime(timeStr) {
 const squadNames = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Gamma', 'Hotel', 'India'];
 
 // --- Rank Structure ---
-const ranks = [
+const defaultRanks = [
   { name: 'Recruit', minXp: 0 },
   { name: 'Private', minXp: 500 },
   { name: 'Corporal', minXp: 1500 },
   { name: 'Sergeant', minXp: 3000 },
   { name: 'Lieutenant', minXp: 6000 }
 ];
+
+function getGuildRanks(guildIdOrConfig) {
+  const guildConfig = typeof guildIdOrConfig === 'object' ? guildIdOrConfig : getGuildConfig(guildIdOrConfig);
+  const configuredRanks = Array.isArray(guildConfig.rankRequirements) ? guildConfig.rankRequirements : [];
+  const validRanks = configuredRanks
+    .filter(rank => rank && typeof rank.name === 'string' && Number.isFinite(Number(rank.minXp)))
+    .map(rank => ({ name: rank.name.trim(), minXp: Number(rank.minXp) }))
+    .filter(rank => rank.name && rank.minXp >= 0)
+    .sort((a, b) => a.minXp - b.minXp);
+
+  return validRanks.length > 0 ? validRanks : defaultRanks;
+}
+
+function formatRankRequirements(rankList) {
+  return rankList.map(rank => `${rank.name}: ${rank.minXp}`).join('\n');
+}
+
+function parseRankRequirements(input) {
+  const parsed = [];
+  const lines = input.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    const match = line.match(/^(.+?)\s*[:=,-]\s*(\d+)$/);
+    if (!match) return null;
+    parsed.push({ name: match[1].trim(), minXp: Number(match[2]) });
+  }
+
+  if (parsed.length === 0 || !parsed.some(rank => rank.minXp === 0)) return null;
+  return parsed.sort((a, b) => a.minXp - b.minXp);
+}
 
 function formatSquadListing(op, guildId) {
   const lines = [];
@@ -308,6 +339,13 @@ function buildSettingsEmbed(guildConfig, section = 'main') {
     embed.setTitle('đź“‚ Mission Templates')
       .setDescription(`Total Saved Templates: \`${count}\``)
       .addFields({ name: 'Usage', value: 'Templates allow rapid operation deployment via the `/op create` flow.' });
+  } else if (section === 'ranks') {
+    const rankList = getGuildRanks(guildConfig)
+      .map(rank => `**${rank.name}** - \`${rank.minXp} XP\``)
+      .join('\n');
+    embed.setTitle('ARCUS Promotion Requirements')
+      .setDescription(rankList)
+      .addFields({ name: 'Format', value: 'Use Edit and enter one rank per line, for example `Sergeant: 3000`.' });
   }
 
   return embed;
@@ -355,8 +393,9 @@ async function replyWithProfile(interaction) {
   const displayName = targetMember?.nickname || targetUser.displayName || targetUser.username;
   const stats = ensureUserStats(data, targetUser.id);
   const ratio = stats.joined > 0 ? Math.round((stats.attended / stats.joined) * 100) : 0;
-  const currentRank = [...ranks].reverse().find(r => stats.xp >= r.minXp) || ranks[0];
-  const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null;
+  const guildRanks = getGuildRanks(interaction.guildId);
+  const currentRank = [...guildRanks].reverse().find(r => stats.xp >= r.minXp) || guildRanks[0];
+  const nextRank = guildRanks[guildRanks.indexOf(currentRank) + 1] || null;
   const progress = nextRank ? `\n*Next Promotion: ${nextRank.name} (${stats.xp}/${nextRank.minXp} XP)*` : '\n*Max Rank Achieved*';
 
   const embed = new EmbedBuilder()
@@ -400,7 +439,8 @@ async function replyWithLeaderboard(interaction) {
     const member = await interaction.guild.members.fetch(entry.id).catch(() => null);
     const finalName = member?.nickname || user.username;
     const medal = i === 0 ? 'đźĄ‡' : i === 1 ? 'đźĄ' : i === 2 ? 'đźĄ‰' : `\`[${i + 1}]\``;
-    const rank = [...ranks].reverse().find(r => (entry.xp || 0) >= r.minXp) || ranks[0];
+    const guildRanks = getGuildRanks(interaction.guildId);
+    const rank = [...guildRanks].reverse().find(r => (entry.xp || 0) >= r.minXp) || guildRanks[0];
     leaderboardText += `${medal} **${finalName}** â€” ${rank.name} (${entry.xp || 0} XP)\n`;
   }
 
@@ -823,8 +863,9 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
         const stats = ensureUserStats(data, targetUser.id);
         const ratio = stats.joined > 0 ? Math.round((stats.attended / stats.joined) * 100) : 0;
 
-        const currentRank = [...ranks].reverse().find(r => stats.xp >= r.minXp) || ranks[0];
-        const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null;
+        const guildRanks = getGuildRanks(interaction.guildId);
+        const currentRank = [...guildRanks].reverse().find(r => stats.xp >= r.minXp) || guildRanks[0];
+        const nextRank = guildRanks[guildRanks.indexOf(currentRank) + 1] || null;
         const progress = nextRank ? `\n*Next Promotion: ${nextRank.name} (${stats.xp}/${nextRank.minXp} XP)*` : '\n*Max Rank Achieved*';
 
         const embed = new EmbedBuilder()
@@ -868,7 +909,8 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
           const member = await interaction.guild.members.fetch(entry.id).catch(() => null); // Fetch GuildMember for nickname
           const finalName = member?.nickname || user.username; // Use nickname if available
           const medal = i === 0 ? 'đźĄ‡' : i === 1 ? 'đźĄ' : i === 2 ? 'đźĄ‰' : `\`[${i + 1}]\``;
-          const rank = [...ranks].reverse().find(r => (entry.xp || 0) >= r.minXp) || ranks[0]; // Get rank for display
+          const guildRanks = getGuildRanks(interaction.guildId);
+          const rank = [...guildRanks].reverse().find(r => (entry.xp || 0) >= r.minXp) || guildRanks[0]; // Get rank for display
           leaderboardText += `${medal} **${finalName}** â€” ${rank.name} (${entry.xp || 0} XP)\n`; // FIX: Use finalName and remove duplicate line
         }
 
@@ -901,7 +943,8 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
           new ButtonBuilder().setCustomId('settings:view:gen').setLabel('General').setStyle(ButtonStyle.Secondary),
           new ButtonBuilder().setCustomId('settings:view:roles').setLabel('Tactical').setStyle(ButtonStyle.Secondary),
           new ButtonBuilder().setCustomId('settings:view:perms').setLabel('Access').setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder().setCustomId('settings:view:templates').setLabel('Mission').setStyle(ButtonStyle.Secondary)
+          new ButtonBuilder().setCustomId('settings:view:templates').setLabel('Mission').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('settings:view:ranks').setLabel('Ranks').setStyle(ButtonStyle.Secondary)
         );
 
         const row2 = new ActionRowBuilder().addComponents(
@@ -966,11 +1009,26 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
         modal.addComponents(new ActionRowBuilder().addComponents(addInput), new ActionRowBuilder().addComponents(removeInput));
         return interaction.showModal(modal);
       }
+
+      if (targetId === 'ranks') {
+        const guildConfig = getGuildConfig(interaction.guildId);
+        const modal = new ModalBuilder().setCustomId('settings:modal:ranks').setTitle('ARCUS: Promotion Requirements');
+        const ranksInput = new TextInputBuilder()
+          .setCustomId('rank_requirements')
+          .setLabel('Ranks and XP requirements')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setValue(formatRankRequirements(getGuildRanks(guildConfig)))
+          .setPlaceholder('Recruit: 0\nPrivate: 500\nCorporal: 1500');
+        modal.addComponents(new ActionRowBuilder().addComponents(ranksInput));
+        return interaction.showModal(modal);
+      }
       
       const guildConfig = getGuildConfig(interaction.guildId);
       let content = "Use `/op tactical add/remove` to manage tactical roles.\nUse `/op admin grant/revoke` to manage admins.";
       if (targetId === 'templates') content = "Use `/op template add/remove` to manage mission templates.";
       if (targetId === 'perms') content = "Use `/op creator grant/revoke` to manage who can create operations.";
+      if (targetId === 'ranks') content = "Use Edit to customize rank names and XP requirements.";
       
       return interaction.reply({ 
         embeds: [new EmbedBuilder()
@@ -986,12 +1044,13 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       const guildConfig = getGuildConfig(interaction.guildId);
       const embed = buildSettingsEmbed(guildConfig, category);
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('settings:view:gen').setLabel('General').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('settings:view:roles').setLabel('Tactical').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('settings:view:perms').setLabel('Access').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('settings:view:templates').setLabel('Mission').setStyle(ButtonStyle.Secondary)
-      );
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('settings:view:gen').setLabel('General').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('settings:view:roles').setLabel('Tactical').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('settings:view:perms').setLabel('Access').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('settings:view:templates').setLabel('Mission').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('settings:view:ranks').setLabel('Ranks').setStyle(ButtonStyle.Secondary)
+        );
 
       const row2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('settings:main').setLabel('Home').setStyle(ButtonStyle.Primary),
@@ -1300,6 +1359,23 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
 
       saveConfig();
       return interaction.reply({ content: feedback.length > 0 ? `ARCUS Registry Updated: ${feedback.join(', ')}` : "No changes made to Registry.", flags: [MessageFlags.Ephemeral] });
+    }
+
+    if (customId === 'settings:modal:ranks') {
+      const guildConfig = getGuildConfig(interaction.guildId);
+      const rawRanks = interaction.fields.getTextInputValue('rank_requirements').trim();
+      const parsedRanks = parseRankRequirements(rawRanks);
+
+      if (!parsedRanks) {
+        return interaction.reply({
+          content: 'ARCUS: Invalid rank format. Use one rank per line like `Recruit: 0` and include a rank at 0 XP.',
+          flags: [MessageFlags.Ephemeral]
+        });
+      }
+
+      guildConfig.rankRequirements = parsedRanks;
+      saveConfig();
+      return interaction.reply({ content: `ARCUS: Promotion requirements updated for ${parsedRanks.length} ranks.`, flags: [MessageFlags.Ephemeral] });
     }
 
     if (customId === 'settings:modal:gen') {
