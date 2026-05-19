@@ -3,7 +3,8 @@
     "1485199972252258364": {
       "defaultGuildId": "1485199972252258364",
       "authorizedRoles": [
-        "Admin"
+        "Admin",
+        "Council"
       ],
       "eventCreatorRoles": [],
       "operationsChannelId": "1485199972801581149",
