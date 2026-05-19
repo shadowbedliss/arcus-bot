@@ -1,5 +1,4 @@
-﻿// ARCUS: Operations Management Bot - Full Stable Rework
-﻿// ARCUS: Operations Management Bot - Full Stable Rework
+// ARCUS: Operations Management Bot - Full Stable Rework
 require('dotenv').config();
 const {
   Client,
@@ -142,15 +141,6 @@ function parseOpTime(timeStr) {
 
 const squadNames = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Gamma', 'Hotel', 'India'];
 
-// --- Rank Structure ---
-const ranks = [ // Ranks are based on 'attended' (completed) operations
-  { name: 'Recruit', minAttended: 0 },
-  { name: 'Sergeant', minAttended: 3, requireBCT: true },   
-  { name: 'Lieutenant', minAttended: 6, minRecruits: 2 },
-  { name: 'Captain', minAttended: 10, minLed: 3, minRecruits: 4 }
-];
-
-
 function formatSquadListing(op, guildId) {
   const lines = [];
   const guildConfig = getGuildConfig(guildId);
@@ -180,7 +170,9 @@ function buildOperationEmbed(op) {
     embed.addFields({ name: '⭐ Personnel Evaluation', value: op.aar_performance });
   }
 
-  embed.addFields({ name: 'Squads', value: formatSquadListing(op, op.guildId) });
+  embed.addFields(
+    { name: 'Squads', value: formatSquadListing(op, op.guildId) }
+  );
   return embed.setFooter({ text: `ID: ${op.id} | Creator: ${op.creatorTag}` });
 }
 
@@ -197,15 +189,14 @@ function canCreateSquad(member, guildId) {
 
 function buildActionRow(op) {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`op:join:${op.id}`).setLabel('✅ Join').setStyle(ButtonStyle.Success).setDisabled(op.locked),
-    new ButtonBuilder().setCustomId(`op:leave:${op.id}`).setLabel('❌ Leave').setStyle(ButtonStyle.Danger).setDisabled(op.locked),
-    new ButtonBuilder().setCustomId(`op:role:${op.id}`).setLabel('🎯 Role').setStyle(ButtonStyle.Primary).setDisabled(op.locked),
-    new ButtonBuilder().setCustomId(`op:squad:${op.id}`).setLabel('➕ Squad').setStyle(ButtonStyle.Secondary).setDisabled(op.locked)
+    new ButtonBuilder().setCustomId(`op:join:${op.id}`).setLabel('✅ Join Operation').setStyle(ButtonStyle.Success).setDisabled(op.locked),
+    new ButtonBuilder().setCustomId(`op:leave:${op.id}`).setLabel('❌ Leave Operation').setStyle(ButtonStyle.Danger).setDisabled(op.locked),
+    new ButtonBuilder().setCustomId(`op:role:${op.id}`).setLabel('🎯 Select Role').setStyle(ButtonStyle.Primary).setDisabled(op.locked),
+    new ButtonBuilder().setCustomId(`op:squad:${op.id}`).setLabel('➕ Create Squad').setStyle(ButtonStyle.Secondary).setDisabled(op.locked)
   );
 }
 
 function getOpById(data, opId) {
-  if (!data || !data.operations) return null;
   return data.operations[opId] || null;
 }
 
@@ -227,7 +218,7 @@ function buildSettingsEmbed(guildConfig, section = 'main') {
         { name: '🎯 Default Role', value: `\`${guildConfig.defaultRole || 'Point Man'}\``, inline: true },
         { name: '\u200B', value: '\u200B', inline: true },
         { name: '📂 Saved Templates', value: `\`${(guildConfig.templates || []).length}\``, inline: true },
-        { name: '📊 System Metrics', value: `Ping: \`${client.ws.ping}ms\`\nUptime: \`${Math.floor(client.uptime / 3600000)}h ${Math.floor((client.uptime % 3600000) / 60000)}m\`\nActive Ops: \`${activeOps}\`` } // FIX: client.ws.ping is correct here
+        { name: '📊 System Metrics', value: `Ping: \`${client.ws.ping}ms\`\nUptime: \`${Math.floor(client.uptime / 3600000)}h ${Math.floor((client.uptime % 3600000) / 60000)}m\`\nActive Ops: \`${activeOps}\`` }
       )
       .setFooter({ text: 'ARCUS v1.0.0 • All systems operational' });
   } else if (section === 'gen') {
@@ -277,14 +268,9 @@ function findUserSquad(op, userId) {
 
 function ensureUserStats(data, userId) {
   if (!data.users[userId]) {
-    data.users[userId] = { joined: 0, attended: 0, xp: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0 };
+    data.users[userId] = { joined: 0, attended: 0 };
+    data.users[userId] = { joined: 0, attended: 0, medals: [] };
   }
-  // Data migration for existing users
-  if (data.users[userId].passedBCT === undefined) data.users[userId].passedBCT = false;
-  if (data.users[userId].promotionNotes === undefined) data.users[userId].promotionNotes = "";
-  // New data migration for ledOps
-  if (data.users[userId].ledOps === undefined) data.users[userId].ledOps = 0;
-  if (data.users[userId].recruits === undefined) data.users[userId].recruits = 0;
   return data.users[userId];
 }
 
@@ -364,6 +350,9 @@ client.once(Events.ClientReady, async () => {
         sub.setName('settings')
           .setDescription('Configure ARCUS settings for this server'))
       .addSubcommand(sub =>
+        sub.setName('clear_stats')
+          .setDescription('Admin: Permanently wipe all attendance statistics'))
+      .addSubcommand(sub =>
         sub.setName('aar')
           .setDescription('Add an After Action Report to an operation')
           .addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true))
@@ -374,10 +363,7 @@ client.once(Events.ClientReady, async () => {
           .addUserOption(opt => opt.setName('target').setDescription('The user to view').setRequired(false)))
       .addSubcommand(sub =>
         sub.setName('leaderboard')
-          .setDescription('View the top performing operators in the system'))
-      .addSubcommand(sub =>
-        sub.setName('clear_stats')
-          .setDescription('Admin: Permanently wipe all attendance statistics'));
+          .setDescription('View the top performing operators in the system'));
 
   const commands = [commandData.toJSON()];
 
@@ -692,37 +678,21 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
         const stats = ensureUserStats(data, targetUser.id);
         const ratio = stats.joined > 0 ? Math.round((stats.attended / stats.joined) * 100) : 0;
 
-        let currentRank = null;
-        if (targetMember) {
-          currentRank = [...ranks].reverse().find(r => 
-            targetMember.roles.cache.some(role => role.name.toLowerCase() === r.name.toLowerCase())
-          );
-        }
-        if (!currentRank) {
-          currentRank = [...ranks].reverse().find(r => (stats.attended || 0) >= r.minAttended) || ranks[0];
-        }
-
+        const currentRank = [...ranks].reverse().find(r => stats.xp >= r.minXp) || ranks[0];
         const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null;
-        let progress = '\n*Max Rank Achieved*';
-        if (nextRank) {
-          const reqs = [];
-          const opsNeeded = Math.max(0, nextRank.minAttended - (stats.attended || 0));
-          if (opsNeeded > 0) reqs.push(`${opsNeeded} Ops`);
-          if (nextRank.requireBCT && !stats.passedBCT) reqs.push('BCT');
-          if (nextRank.minLed && (stats.ledOps || 0) < nextRank.minLed) reqs.push(`${nextRank.minLed - (stats.ledOps || 0)} Led Ops`);
-          if (nextRank.minRecruits && (stats.recruits || 0) < nextRank.minRecruits) reqs.push(`${nextRank.minRecruits - (stats.recruits || 0)} Recruits`);
-          progress = `\n*Next Promotion: ${nextRank.name} (${reqs.length > 0 ? reqs.join(', ') : 'Eligible'})*`;
-        }
+        const progress = nextRank ? `\n*Next Rank: ${nextRank.name} (${stats.xp}/${nextRank.minXp} XP)*` : '\n*Maximum Rank Achieved*';
+        const progress = nextRank ? `\n*Next Promotion: ${nextRank.name} (${stats.xp}/${nextRank.minXp} XP)*` : '\n*Max Rank Achieved*';
 
         const embed = new EmbedBuilder()
           .setTitle(`ARCUS Service Record: ${displayName}`)
           .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
           .addFields(
             { name: 'Rank', value: `**${currentRank.name}**`, inline: true },
-            { name: 'Experience', value: `\`${stats.xp || 0} XP\`${progress}`, inline: true },
-            { name: 'Personnel Stats', value: `Led: \`${stats.ledOps || 0}\`\nRecruits: \`${stats.recruits || 0}\``, inline: true },
-            { name: 'Deployment Status', value: `Joined: \`${stats.joined}\`\nAttended: \`${stats.attended}\`\nEfficiency: \`${ratio}%\``, inline: true },
-            { name: 'Qualification Status', value: `BCT: ${stats.passedBCT ? '✅ Passed' : '❌ Pending'}\nNotes: ${stats.promotionNotes || '_No notes record_'}`, inline: true }
+            { name: 'Experience', value: `\`${stats.xp} XP\`${progress}`, inline: true },
+            { name: '\u200B', value: '\u200B', inline: true },
+            { name: 'Total Deployments', value: `\`${stats.joined}\``, inline: true },
+            { name: 'Successful Ops', value: `\`${stats.attended}\``, inline: true },
+            { name: 'Efficiency Rating', value: `\`${ratio}%\``, inline: true }
           )
           .setColor(ratio > 75 ? 0x00FF00 : ratio > 50 ? 0xFFFF00 : 0xED4245)
           .setFooter({ text: 'Operational Excellence through Data Synchronization' })
@@ -736,33 +706,21 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
         const userEntries = Object.entries(data.users);
 
         if (userEntries.length === 0) {
-          return interaction.reply({ content: 'ARCUS: No operational data recorded yet.', flags: [MessageFlags.Ephemeral] }); // FIX: Use flags
+          return interaction.reply({ content: 'ARCUS: No operational data recorded yet.', flags: [MessageFlags.Ephemeral] });
         }
 
         const topOperators = userEntries
-          .map(([id, stats]) => ({ id, ...ensureUserStats(data, id), ratio: (stats.joined > 0 ? (stats.attended / stats.joined) : 0) }))
-          .sort((a, b) => (b.xp || 0) - (a.xp || 0) || b.attended - a.attended || b.ratio - a.ratio) // Sort by XP, then attended, then ratio
+          .map(([id, stats]) => ({ id, ...stats, ratio: stats.joined > 0 ? (stats.attended / stats.joined) : 0 }))
+          .sort((a, b) => b.attended - a.attended || b.ratio - a.ratio)
           .slice(0, 10);
 
         let leaderboardText = '';
         for (let i = 0; i < topOperators.length; i++) {
           const entry = topOperators[i];
-          const user = await client.users.fetch(entry.id).catch(() => ({ username: 'Unknown Operator' }));
-          const member = await interaction.guild.members.fetch(entry.id).catch(() => null); // Fetch GuildMember for nickname
-          const finalName = member?.nickname || user.username; // Use nickname if available
+          const member = await interaction.guild.members.fetch(entry.id).catch(() => null);
+          const name = member?.nickname || (await client.users.fetch(entry.id).catch(() => ({ username: 'Unknown Operator' }))).username;
           const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `\`[${i + 1}]\``;
-          
-          let rank = null;
-          if (member) {
-            rank = [...ranks].reverse().find(r => 
-              member.roles.cache.some(role => role.name.toLowerCase() === r.name.toLowerCase())
-            );
-          }
-          if (!rank) {
-            rank = [...ranks].reverse().find(r => (entry.attended || 0) >= r.minAttended) || ranks[0];
-          }
-
-          leaderboardText += `${medal} **${finalName}** — ${rank.name} (${entry.xp || 0} XP)\n`; // FIX: Use finalName and remove duplicate line
+          leaderboardText += `${medal} **${name}** — ${entry.attended} Ops (${Math.round(entry.ratio * 100)}%)\n`;
         }
 
         const embed = new EmbedBuilder()
@@ -777,7 +735,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       if (subcommand === 'clear_stats') {
         if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Admin privileges required.', flags: [MessageFlags.Ephemeral] });
         const data = loadData();
-        data.users = {};
+        data.users = {}; // FIX: Ensure data.users is cleared
         saveData(data);
         return interaction.reply({ content: 'ARCUS: All attendance statistics have been wiped.', flags: [MessageFlags.Ephemeral] });
       }
@@ -806,7 +764,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
         return interaction.reply({ 
           embeds: [embed], 
           components: [row, row2], 
-          flags: [MessageFlags.Ephemeral]
+          flags: [MessageFlags.Ephemeral] // FIX: Use flags
         });
       }
     } else if (interaction.isButton()) {
@@ -817,7 +775,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
     const targetId = parts[2];
 
     // Handle template_list button (from /op create DM) - This is an initial response (showing a modal), so no deferUpdate() needed here.
-    if (namespace === 'op' && action === 'template_list') { // FIX: Added missing closing brace
+    if (namespace === 'op' && action === 'template_list') {
       const guildId = parts[2] || interaction.guildId;
       const targetChannelId = parts[3];
 
@@ -834,7 +792,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
         .addOptions(options);
 
       return interaction.reply({ content: 'ARCUS: Select a template:', components: [new ActionRowBuilder().addComponents(select)], flags: [MessageFlags.Ephemeral] }); // Use reply for new ephemeral message
-    }
+    } // FIX: Closing brace for template_list
 
     // Handle settings:edit button - This is an initial response (showing a modal or new message), so no deferUpdate() needed here.
     if (namespace === 'settings' && action === 'edit') {
@@ -868,7 +826,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
           .setColor(0xFFFF00)], 
         flags: [MessageFlags.Ephemeral]
       });
-    }
+    } // FIX: Closing brace for settings:edit
 
     if (namespace === 'settings' && (action === 'view' || action === 'main')) {
       const category = action === 'view' ? targetId : 'main';
@@ -889,7 +847,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       );
 
       return interaction.update({ embeds: [embed], components: [row, row2] }); // FIX: Use update, ephemerality is inherited
-    }
+    } // FIX: Closing brace for settings:view/main
 
     if (namespace === 'settings' && action === 'close') {
       await interaction.deferUpdate();
@@ -925,58 +883,6 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       }
     }
 
-    if (namespace === 'op' && action === 'prof_edit') {
-      if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.followUp({ content: 'Unauthorized.', flags: [MessageFlags.Ephemeral] });
-      const data = loadData();
-      const ustats = ensureUserStats(data, targetId);
-      const modal = new ModalBuilder().setCustomId(`op:modal:prof_edit:${targetId}`).setTitle('Edit Operator Qualifications');
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('bct_status').setLabel('BCT Passed? (yes/no)').setStyle(TextInputStyle.Short).setValue(ustats.passedBCT ? 'yes' : 'no')),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('joined_ops').setLabel('Joined Ops Count').setStyle(TextInputStyle.Short).setValue((ustats.joined || 0).toString())),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('attended_ops').setLabel('Attended Ops Count').setStyle(TextInputStyle.Short).setValue((ustats.attended || 0).toString())),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('led_ops').setLabel('Led Ops Count').setStyle(TextInputStyle.Short).setValue((ustats.ledOps || 0).toString())),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('recruit_count').setLabel('Recruits Brought In').setStyle(TextInputStyle.Short).setValue((ustats.recruits || 0).toString())),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('prom_notes').setLabel('Promotion Notes / Requirements').setStyle(TextInputStyle.Paragraph).setRequired(false).setValue(ustats.promotionNotes || ''))
-      );
-      return interaction.showModal(modal);
-    }
-
-    if (namespace === 'op' && action === 'prof_promote') {
-      if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.followUp({ content: 'Unauthorized.', flags: [MessageFlags.Ephemeral] });
-      await interaction.deferUpdate();
-      const data = loadData();
-      const stats = ensureUserStats(data, targetId);
-      const member = await interaction.guild.members.fetch(targetId).catch(() => null);
-      if (!member) return interaction.followUp({ content: 'Operator no longer in server.', flags: [MessageFlags.Ephemeral] });
-
-      let currentRank = [...ranks].reverse().find(r => member.roles.cache.some(role => role.name.toLowerCase() === r.name.toLowerCase()));
-      if (!currentRank) currentRank = [...ranks].reverse().find(r => (stats.attended || 0) >= r.minAttended) || ranks[0];
-
-      const nextRank = ranks[ranks.indexOf(currentRank) + 1];
-      if (!nextRank) return interaction.followUp({ content: 'Operator is at max rank.', flags: [MessageFlags.Ephemeral] });
-
-      if (stats.attended < nextRank.minAttended) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minAttended} completed ops.`, flags: [MessageFlags.Ephemeral] });
-      if (nextRank.requireBCT && !stats.passedBCT) return interaction.followUp({ content: 'Ineligible: Operator has not passed BCT.', flags: [MessageFlags.Ephemeral] });
-      if (nextRank.minLed && (stats.ledOps || 0) < nextRank.minLed) return interaction.followUp({ content: `Ineligible: Needs to lead ${nextRank.minLed} ops (Current: ${stats.ledOps || 0}).`, flags: [MessageFlags.Ephemeral] });
-      if (nextRank.minRecruits && (stats.recruits || 0) < nextRank.minRecruits) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minRecruits} recruits (Current: ${stats.recruits || 0}).`, flags: [MessageFlags.Ephemeral] });
-
-      const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === nextRank.name.toLowerCase());
-      if (role) {
-        // Remove current rank role if it exists and is different from the new rank
-        const currentRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === currentRank.name.toLowerCase());
-        if (currentRole && currentRole.id !== role.id) {
-          await member.roles.remove(currentRole).catch(e => console.error(`Failed to remove old rank role ${currentRole.name}:`, e));
-        }
-        await member.roles.add(role).catch(e => console.error(`Failed to add new rank role ${role.name}:`, e));
-      }
-      
-      try {
-        await member.send(`🎖️ **ARCUS Promotion**: You have been promoted to **${nextRank.name}**! Service record updated.`);
-      } catch (e) {}
-
-      return interaction.followUp({ content: `✅ Operator <@${targetId}> promoted to **${nextRank.name}**.` });
-    }
-
     // Handle operation specific buttons
     if (namespace !== 'op') return;
 
@@ -1000,7 +906,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       const squad = op.squads.find(s => s.members.length < (guildConfig.maxSquadSize || 4));
       if (!squad) {
         return interaction.followUp({ content: 'ARCUS: Operation at capacity. Wait for new squad.', flags: [MessageFlags.Ephemeral] }); // FIX: Use flags
-      } // FIX: Added missing closing brace
+      }
 
       const roleToAssign = (interaction.user.id === op.creatorId) ? "Squad Lead" : (guildConfig.defaultRole || "Point Man");
 
@@ -1093,7 +999,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       data.operations[targetId] = op;
       saveData(data);
       await updateOperationMessage(client, op); // FIX: Await is fine here
-      return interaction.followUp({ content: `ARCUS: Squad ${nextName} initialized.`, flags: [MessageFlags.Ephemeral] }); // FIX: Removed redundant .catch()
+      return interaction.followUp({ content: `ARCUS: Squad ${nextName} initialized.`, flags: [MessageFlags.Ephemeral] }).catch(() => {});
     }
     } else if (interaction.isStringSelectMenu()) {
       const customId = interaction.customId;
@@ -1103,8 +1009,8 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       const vals = interaction.values[0].split('_');
       const idx = vals[1];
       const guildId = vals.length > 3 ? vals[2] : null;
-      const channelId = vals.length > 3 ? vals[3] : vals[2]; // FIX: Corrected parsing for guildId and channelId
-      
+      const channelId = vals.length > 3 ? vals[3] : vals[2];
+
       const guildConfig = getGuildConfig(guildId);
       const template = guildConfig.templates[parseInt(idx)];
 
@@ -1119,7 +1025,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_pings').setLabel("Roles to Ping (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setValue(template.pings || '')),
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_reminder').setLabel("Reminder Offset (Minutes)").setStyle(TextInputStyle.Short).setRequired(false).setValue(template.reminder?.toString() || '30'))
       );
-      return interaction.showModal(modal);
+      return interaction.showModal(modal); // FIX: showModal is an immediate response
     }
 
     await interaction.deferUpdate().catch(() => {}); // FIX: Defer for roleselect, etc. after load_template is handled
@@ -1140,7 +1046,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       // ROLE CAPACITY CHECK
       const caps = { 'Medic': 1, 'Overwatch': 1, 'Demolitions': 1, 'Squad Lead': 1 };
       if (caps[selectedRole]) {
-        const count = squad.members.filter(m => m.role === selectedRole).length; // FIX: Count all members with the role
+        const count = squad.members.filter(m => m.role === selectedRole && m.userId !== interaction.user.id).length;
         if (count >= caps[selectedRole]) { // FIX: Ensure capacity check is correct
           return interaction.followUp({ content: `ARCUS: This squad already has a ${selectedRole}.`, flags: [MessageFlags.Ephemeral] }); // FIX: Use flags
         }
@@ -1211,7 +1117,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       guildConfig.templates.push({ name, description, pings, reminder });
       saveConfig();
       return interaction.reply({ content: `ARCUS: Mission template **${name}** has been registered.`, flags: [MessageFlags.Ephemeral] }); // FIX: Use flags
-    } // FIX: Added missing closing brace
+    }
 
     if (customId === 'settings:modal:roles') {
       const guildConfig = getGuildConfig(interaction.guildId);
@@ -1245,7 +1151,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       if (isNaN(size) || size < 1 || size > 10) return interaction.reply({ content: 'Invalid squad size. Please choose a number between 1 and 10.', flags: [MessageFlags.Ephemeral] });
 
       // Validation: Ensure the default role exists in the selectable roles list
-      const available = guildConfig.selectableRoles; // FIX: Use guildConfig.selectableRoles directly
+      const available = guildConfig.selectableRoles || ["Point Man", "Overwatch", "Medic", "Demolitions"];
       if (!available.some(r => r.toLowerCase() === defRole.toLowerCase())) { // FIX: Ensure validation is correct
         return interaction.reply({ 
           content: `⚠️ **Warning**: "${defRole}" is not in your Tactical Role list. Please add it to the registry first or check your spelling.`, 
@@ -1256,7 +1162,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       guildConfig.maxSquadSize = size;
       guildConfig.defaultRole = defRole;
       saveConfig();
-      return interaction.reply({ content: 'ARCUS: General settings updated.', flags: [MessageFlags.Ephemeral] });
+      return interaction.reply({ content: 'ARCUS: General settings updated.', flags: [MessageFlags.Ephemeral] }); // FIX: Use flags
     } // FIX: Added missing closing brace
 
     if (parts[1] === 'modal' && parts[2] === 'aar') {
@@ -1275,33 +1181,11 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       return interaction.reply({ content: `✅ **AAR Filed for Op ${op.name}**. The operation board has been updated.` });
     }
 
-    if (parts[1] === 'modal' && parts[2] === 'prof_edit') {
-      const targetUserId = parts[3];
-      const data = loadData();
-      const ustats = ensureUserStats(data, targetUserId);
-      
-      const bctVal = interaction.fields.getTextInputValue('bct_status').toLowerCase();
-      const joinedOpsVal = parseInt(interaction.fields.getTextInputValue('joined_ops'));
-      const attendedOpsVal = parseInt(interaction.fields.getTextInputValue('attended_ops'));
-      const ledOpsVal = parseInt(interaction.fields.getTextInputValue('led_ops'));
-      const recruitsVal = parseInt(interaction.fields.getTextInputValue('recruit_count'));
-      const notesVal = interaction.fields.getTextInputValue('prom_notes');
-
-      ustats.passedBCT = (bctVal === 'yes' || bctVal === 'true');
-      if (!isNaN(joinedOpsVal)) ustats.joined = joinedOpsVal;
-      if (!isNaN(attendedOpsVal)) ustats.attended = attendedOpsVal;
-      if (!isNaN(ledOpsVal)) ustats.ledOps = ledOpsVal;
-      if (!isNaN(recruitsVal)) ustats.recruits = recruitsVal;
-      ustats.promotionNotes = notesVal;
-
-      saveData(data);
-      return interaction.reply({ content: `✅ Updated qualifications for <@${targetUserId}>.`, flags: [MessageFlags.Ephemeral] });
-    }
-
     if (parts[1] === 'modal' && parts[2] === 'submit') {
       // Support both legacy 4-part and new 5-part IDs
-      const guildId = parts[3]; // FIX: Corrected parsing for guildId
-      const channelId = parts[4]; // FIX: Corrected parsing for channelId
+      const hasGuildId = parts.length > 4;
+      const guildId = hasGuildId ? parts[3] : null;
+      const channelId = hasGuildId ? parts[4] : parts[3];
 
       const name = interaction.fields.getTextInputValue('op_name');
       const time = interaction.fields.getTextInputValue('op_time');
@@ -1376,7 +1260,8 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       op.messageId = msg.id;
       data.operations[opId] = op;
       saveData(data);
-      return interaction.reply({ content: `ARCUS: Operation **${name}** created in <#${channelId}>.`, flags: [MessageFlags.Ephemeral] });
+      // FIX: Ensure interaction is replied to
+      return interaction.reply({ content: `ARCUS: Operation **${name}** created in <#${channelId}>.`, flags: [MessageFlags.Ephemeral] }); // FIX: Use flags
     }
     }
   } catch (error) {

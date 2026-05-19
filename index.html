@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARCUS Dashboard</title>
+    <style>
+        :root {
+            --bg-primary: #36393f; --bg-secondary: #2f3136; --bg-tertiary: #202225;
+            --text-normal: #dcddde; --text-muted: #72767d; --blurple: #ed4245;
+            --green: #3ba55c; --red: #ed4245;
+            --accent: #5865f2;
+        }
+        body { font-family: 'gg sans', 'Segoe UI', Tahoma, sans-serif; background: var(--bg-primary); color: var(--text-normal); margin: 0; display: flex; height: 100vh; }
+        
+        /* Sidebar */
+        .sidebar { width: 240px; background: var(--bg-tertiary); display: flex; flex-direction: column; padding: 20px 10px; }
+        .sidebar h2 { color: white; font-size: 1.2rem; margin-bottom: 20px; padding: 0 10px; }
+        .nav-item { padding: 12px 15px; border-radius: 5px; cursor: pointer; color: var(--text-muted); transition: 0.2s; margin-bottom: 5px; }
+        .nav-item:hover { background: #393c43; color: white; }
+        .nav-item.active { background: #4f545c; color: white; }
+
+        /* Main Content */
+        .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .top-bar { height: 60px; background: var(--bg-secondary); display: flex; align-items: center; padding: 0 20px; box-shadow: 0 1px 0 rgba(0,0,0,0.2); justify-content: space-between; }
+        .content-area { flex: 1; padding: 30px; overflow-y: auto; }
+        
+        /* Cards & UI Elements */
+        .section { display: none; }
+        .section.active { display: block; }
+        .card { background: var(--bg-secondary); border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        label { display: block; margin-top: 15px; color: #99aab5; font-size: 0.9em; text-transform: uppercase; font-weight: bold; }
+        input { width: 100%; padding: 10px; margin-top: 5px; border-radius: 4px; border: none; background: #202225; color: white; box-sizing: border-box; }
+        .btn { padding: 10px 20px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer; background: var(--blurple); color: white; transition: 0.2s; }
+        .btn-danger { background: var(--red); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        /* Chart Container */
+        .chart-container { position: relative; height: 200px; width: 100%; margin-top: 20px; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th { text-align: left; color: var(--text-muted); text-transform: uppercase; font-size: 0.8rem; padding: 10px; border-bottom: 1px solid #4f545c; }
+        td { padding: 12px 10px; border-bottom: 1px solid #4f545c; }
+        
+        .role-tag { background: #4f545c; padding: 2px 8px; border-radius: 12px; font-size: 0.8rem; margin-right: 5px; display: inline-flex; align-items: center; }
+       .role-tag span { cursor: pointer; margin-left: 8px; color: var(--red); font-weight: bold; }
+        .status-indicator { display: flex; gap: 20px; font-size: 0.9rem; }
+        .dot { height: 10px; width: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .dot.online { background-color: var(--green); }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="script.js" defer></script>
+</head>
+<body>
+    <div class="sidebar">
+        <h2 style="color: var(--blurple); letter-spacing: 2px;">ARCUS COMMAND</h2>
+        <div class="nav-item active" onclick="showSection('dashboard', this)">Dashboard</div>
+        <div class="nav-item" onclick="showSection('config', this)">Bot Config</div>
+        <div class="nav-item" onclick="showSection('roles', this)">Permissions</div>
+        <div class="nav-item" onclick="showSection('ops', this)">Operations</div>
+        <div class="nav-item" onclick="showSection('stats', this)">Member Stats</div>
+    </div>
+
+    <div class="main">
+        <div class="top-bar">
+            <div id="bot-tag">Loading bot...</div>
+            <div style="display: flex; align-items: center; gap: 25px;">
+                <select id="guildSelector" onchange="changeGuild()" style="background: var(--bg-tertiary); color: white; border: 1px solid #4f545c; padding: 5px; border-radius: 4px;"></select>
+                <div class="status-indicator">
+                    <span><span class="dot online"></span><span id="uptime">0h</span></span>
+                    <span>Ping: <span id="ping">0ms</span></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-area">
+            <!-- Dashboard Overview -->
+            <div id="dashboard" class="section active">
+                <h1>Welcome, Commander</h1>
+                <div class="card">
+                    <h3>Quick Stats</h3>
+                    <p>Total Operations: <span id="count-ops">0</span></p>
+                    <p>Active Users: <span id="count-users">0</span></p>
+                </div>
+                <div class="card">
+                    <h3>Attendance Overview</h3>
+                    <div class="chart-container"><canvas id="statsChart"></canvas></div>
+                </div>
+            </div>
+
+            <!-- General Config -->
+            <div id="config" class="section">
+                <h1>Bot Configuration</h1>
+                <div class="card">
+                    <form id="configForm">
+                        <label>Server (Guild) ID</label>
+                        <input type="text" id="defaultGuildId" placeholder="Enter Discord Server ID">
+                        <label>Default Role</label>
+                        <select id="defaultRole" style="width: 100%; padding: 10px; border-radius: 4px; background: #202225; color: white; border: none;"></select>
+                        <label>Max Squad Size</label>
+                        <input type="number" id="maxSquadSize">
+                        <label>Operations Channel ID</label>
+                        <select id="operationsChannelId" style="width: 100%; padding: 10px; border-radius: 4px; background: #202225; color: white; border: 1px solid #4f545c;"></select>
+                        <button type="submit" class="btn" style="margin-top: 20px;">Save Settings</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Roles & Permissions -->
+            <div id="roles" class="section">
+                <h1>Permissions Management</h1>
+                <div class="card" id="authorizedRolesCard">
+                    <h3>Authorized Admin Roles</h3>
+                    <div id="authorizedRolesList" style="margin-bottom: 10px;"></div>
+                    <div class="input-group">
+                        <select id="newAuthRole" style="width: 250px; padding: 10px; border-radius: 4px; background: #202225; color: white; border: 1px solid #4f545c;"></select>
+                        <button onclick="addRole('authorizedRoles', 'newAuthRole')" class="btn">Add</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Event Creator Roles</h3>
+                    <div id="eventCreatorRolesList" style="margin-bottom: 10px;"></div>
+                    <div class="input-group">
+                        <select id="newEventRole" style="width: 250px; padding: 10px; border-radius: 4px; background: #202225; color: white; border: 1px solid #4f545c;"></select>
+                        <button onclick="addRole('eventCreatorRoles', 'newEventRole')" class="btn">Add</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Selectable Mission Roles</h3>
+                    <div id="selectableRolesList" style="margin-bottom: 10px;"></div>
+                    <div class="input-group">
+                        <select id="newSelectableRole" style="width: 250px; padding: 10px; border-radius: 4px; background: #202225; color: white; border: 1px solid #4f545c;"></select>
+                        <button onclick="addRole('selectableRoles', 'newSelectableRole')" class="btn">Add</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Mission Templates</h3>
+                    <div id="templatesList" style="margin-bottom: 10px;"></div>
+                    <button onclick="openTemplateModal()" class="btn">Add New Template</button>
+                </div>
+            </div>
+
+            <!-- Operations List -->
+            <div id="ops" class="section">
+                <h1>Operation History</h1>
+                <div class="card">
+                    <table>
+                        <thead><tr><th>ID</th><th>Name</th><th>Creator</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody id="opsTable"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- User Stats -->
+            <div id="stats" class="section">
+                <h1>Member Statistics</h1>
+                <div class="card">
+                    <table>
+                        <thead><tr><th>User ID</th><th>Joined</th><th>Attended</th><th>Rating</th></tr></thead>
+                        <tbody id="statsTable"></tbody>
+                    </table>
+                    <button onclick="clearStats()" class="btn btn-danger" style="margin-top: 20px; font-size: 12px; padding: 8px 15px;">Clear All Records</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentConfig = {};
+        let botData = {};
+        let guildRoles = [];
+        let guildChannels = [];
+        let isInitialized = false;
+        let isFetching = false;
+        let statsChart = null;
+        let selectedGuildId = "";
+
+        function showSection(id, element) {
+            if (!id || !element) return;
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            const target = document.getElementById(id);
+            if (target) target.classList.add('active');
+            element.classList.add('active');
+        }
+
+        async function fetchData() {
+            if (isFetching) return;
+            isFetching = true;
+
+            try {
+                const resStatus = await fetch('/api/status');
+                const status = await resStatus.json();
+                updateLiveUI(status);
+
+                if (!isInitialized) {
+                    const guildsRes = await fetch('/api/guilds');
+                    if (guildsRes.ok) {
+                        const guilds = await guildsRes.json();
+                        const selector = document.getElementById('guildSelector');
+                        selector.innerHTML = guilds.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+                        if (!selectedGuildId && guilds.length) selectedGuildId = guilds[0].id;
+                        selector.value = selectedGuildId;
+                    }
+                    await refreshMetadata();
+                }
+
+                const resData = await fetch('/api/data');
+
+                if (resData.ok) {
+                    botData = await resData.json();
+                    renderTables();
+                    refreshPermissionTags();
+                }
+            } catch (err) {
+                console.error("Failed to refresh dashboard:", err);
+            } finally {
+                isFetching = false;
+            }
+        }
+
+        function changeGuild() {
+            selectedGuildId = document.getElementById('guildSelector').value;
+            isInitialized = false;
+            fetchData();
+        }
+
+        async function refreshMetadata() {
+            try {
+                const [rolesRes, channelsRes, configRes] = await Promise.all([
+                    fetch(`/api/roles?guildId=${selectedGuildId}`),
+                    fetch(`/api/channels?guildId=${selectedGuildId}`),
+                    fetch(`/api/config?guildId=${selectedGuildId}`)
+                ]);
+
+                if (rolesRes.ok && channelsRes.ok && configRes.ok) {
+                    guildRoles = await rolesRes.json();
+                    guildChannels = await channelsRes.json();
+                    currentConfig = await configRes.json();
+                    isInitialized = true;
+                    initDropdowns();
+                } else {
+                    const err = await rolesRes.json();
+                    console.error("Metadata error:", err.error);
+                    if (err.error === 'Guild not found') document.getElementById('bot-tag').innerText = "Invalid Guild ID";
+                }
+
+            } catch (e) {
+                console.error("Metadata fetch failed", e);
+            }
+        }
+
+        function initDropdowns() {
+            const buildOptions = (id, list, useNames = false) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (!Array.isArray(list)) list = [];
+                
+                el.innerHTML = '';
+                const placeholder = document.createElement('option');
+                placeholder.value = "";
+                placeholder.textContent = list.length ? "Select an option..." : "No items found";
+                el.appendChild(placeholder);
+
+                list.forEach(item => {
+                    const opt = document.createElement('option');
+                    opt.value = useNames ? item.name : item.id;
+                    opt.textContent = item.name;
+                    el.appendChild(opt);
+                });
+            };
+
+            buildOptions('defaultRole', guildRoles, true);
+            buildOptions('operationsChannelId', guildChannels);
+            buildOptions('newAuthRole', guildRoles, true);
+            buildOptions('newEventRole', guildRoles, true);
+            buildOptions('newSelectableRole', guildRoles, true);
+
+            // Sync current values
+            if (currentConfig) {
+                document.getElementById('defaultGuildId').value = currentConfig.defaultGuildId || '';
+                
+                const defaultRoleSelect = document.getElementById('defaultRole');
+                const defaultRoleValue = currentConfig.defaultRole;
+                // Check if the configured default role exists in the available options
+                const roleExists = guildRoles.some(role => role.name === defaultRoleValue);
+                if (roleExists) {
+                    defaultRoleSelect.value = defaultRoleValue;
+                } else {
+                    defaultRoleSelect.value = ''; // Clear selection if role doesn't exist
+                }
+                document.getElementById('operationsChannelId').value = currentConfig.operationsChannelId || '';
+                document.getElementById('maxSquadSize').value = currentConfig.maxSquadSize || 4;
+            }
+            
+            refreshTags();
+        }
+
+        function refreshTags() {
+            renderRoleTags('authorizedRoles', 'authorizedRolesList');
+            renderRoleTags('eventCreatorRoles', 'eventCreatorRolesList');
+            renderRoleTags('selectableRoles', 'selectableRolesList');
+        }
+
+        function updateLiveUI(status) {
+            document.getElementById('bot-tag').innerText = status.tag;
+            document.getElementById('ping').innerText = status.ping + 'ms';
+            document.getElementById('uptime').innerText = Math.floor(status.uptime / 3600000) + 'h up';
+        }
+
+        function renderTables() {
+            if (!botData.operations) return;
+
+            const opsTable = document.getElementById('opsTable');
+            const ops = Object.values(botData.operations);
+            opsTable.innerHTML = ops.length ? ops.map(op => `
+                <tr>
+                    <td>${op.id}</td><td>${op.name}</td><td>${op.creatorTag}</td><td>${op.locked ? 'Ended' : 'Active'}</td>
+                    <td>
+                        ${!op.locked ? `<button class="btn btn-small" onclick="endOp('${op.id}')" style="background: var(--green); padding: 5px 10px; font-size: 11px;">End</button>` : ''}
+                        <button class="btn btn-small" onclick="deleteOp('${op.id}')" style="background: var(--red); padding: 5px 10px; font-size: 11px;">Del</button>
+                    </td>
+                </tr>
+            `).join('') : '<tr><td colspan="5">No operations found</td></tr>';
+
+            const statsTable = document.getElementById('statsTable');
+            const users = Object.entries(botData.users);
+            statsTable.innerHTML = users.length ? users.map(([id, s]) => `
+                <tr><td>${id}</td><td>${s.joined}</td><td>${s.attended}</td><td>${Math.round((s.attended/s.joined)*100 || 0)}%</td></tr>
+            `).join('') : '<tr><td colspan="4">No member stats recorded</td></tr>';
+
+            document.getElementById('count-ops').innerText = Object.keys(botData.operations).length;
+            document.getElementById('count-users').innerText = Object.keys(botData.users).length;
+            updateChart();
+        }
+
+        function updateChart() {
+            const ctx = document.getElementById('statsChart').getContext('2d');
+            const users = Object.entries(botData.users).slice(0, 5); // Top 5
+            const labels = users.map(([id]) => id.substring(0, 5) + '...');
+            const data = users.map(([_, s]) => Math.round((s.attended/s.joined)*100 || 0));
+
+            if (statsChart) statsChart.destroy();
+            statsChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Attendance %',
+                        data: data,
+                        backgroundColor: '#ed4245',
+                        borderRadius: 5
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 100, grid: { color: '#4f545c' } },
+                        x: { grid: { display: false } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        async function endOp(id) {
+            if (!confirm('End this operation and lock squads?')) return;
+            const res = await fetch(`/api/operations/${id}/end`, {
+                method: 'POST'
+            });
+            if (res.ok) fetchData();
+            else alert('Failed to end operation');
+        }
+
+        async function deleteOp(id) {
+            if (!confirm('Permanently delete this record? This will also attempt to delete the Discord message.')) return;
+            const res = await fetch(`/api/operations/${id}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) fetchData();
+            else alert('Failed to delete operation');
+        }
+
+        async function clearStats() {
+            if (!confirm('DANGER: This will permanently wipe all member attendance statistics. Proceed?')) return;
+            const res = await fetch('/api/stats/clear', {
+                method: 'POST'
+            });
+            if (res.ok) fetchData();
+            else alert('Failed to clear statistics');
+        }
+
+        function refreshPermissionTags() {
+            refreshTags();
+        }
+
+        function renderRoleTags(key, containerId) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = (currentConfig[key] || []).map((role, i) => {
+                const roleData = guildRoles.find(r => r.id === role || r.name === role);
+                const displayName = roleData ? roleData.name : role;
+                return `<div class="role-tag">${displayName} <span onclick="removeRole('${key}', ${i})">×</span></div>`;
+            }).join('');
+        }
+
+        async function addRole(key, inputId) {
+            const val = document.getElementById(inputId).value;
+            if (!val) return;
+            
+            if (!currentConfig[key]) currentConfig[key] = [];
+            
+            // Prevent duplicates (checks both ID and Name)
+            const exists = currentConfig[key].some(r => r.toString().toLowerCase() === val.toString().toLowerCase());
+            if (exists) return alert('Role already added.');
+
+            currentConfig[key].push(val);
+            await saveSettings(false);
+            document.getElementById(inputId).value = '';
+        }
+
+        async function removeRole(key, index) {
+            if (!currentConfig[key]) return;
+            currentConfig[key].splice(index, 1);
+            await saveSettings(false);
+        }
+
+        async function saveSettings(full = true) {
+            await fetch(`/api/config?guildId=${selectedGuildId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(currentConfig)
+            });
+            if (full) await refreshMetadata();
+            else refreshTags();
+        }
+
+        document.getElementById('configForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const oldGuildId = currentConfig.defaultGuildId;
+            Object.assign(currentConfig, {
+                defaultGuildId: document.getElementById('defaultGuildId').value,
+                defaultRole: document.getElementById('defaultRole').value,
+                maxSquadSize: parseInt(document.getElementById('maxSquadSize').value),
+                operationsChannelId: document.getElementById('operationsChannelId').value
+            });
+            
+            // If guild changed, force metadata refresh
+            if (oldGuildId !== currentConfig.defaultGuildId) isInitialized = false;
+
+            await saveSettings();
+            alert('Settings Saved!');
+        };
+
+        fetchData();
+        setInterval(fetchData, 5000); // Auto refresh status every 5s
+    </script>
+</body>
+</html>
