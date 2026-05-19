@@ -104,6 +104,22 @@ function isAuthorized(member, guildId) {
   });
 }
 
+function resolveGuildRole(guild, configuredRole) {
+  if (!guild || !configuredRole) return null;
+  const target = configuredRole.toLowerCase();
+  return guild.roles.cache.find(role => role.id === configuredRole || role.name.toLowerCase() === target) || null;
+}
+
+function memberHasRoleAtOrAbove(member, configuredRole) {
+  if (!member || !configuredRole) return false;
+  const grantedRole = resolveGuildRole(member.guild, configuredRole);
+  if (!grantedRole) {
+    const target = configuredRole.toLowerCase();
+    return member.roles.cache.some(role => role.id === configuredRole || role.name.toLowerCase() === target);
+  }
+  return member.roles.cache.some(role => role.id === grantedRole.id || role.position >= grantedRole.position);
+}
+
 function parseOpTime(timeStr) {
   if (!timeStr) return NaN;
   const now = new Date();
@@ -187,7 +203,7 @@ function canCreateEvent(member, guildId) {
   if (!member || !member.permissions) return false;
   if (member.permissions.has('Administrator')) return true;
   const guildConfig = getGuildConfig(guildId);
-  return isAuthorized(member, guildId) || member.roles.cache.some(role => (guildConfig.eventCreatorRoles || []).includes(role.id));
+  return isAuthorized(member, guildId) || (guildConfig.eventCreatorRoles || []).some(role => memberHasRoleAtOrAbove(member, role));
 }
 
 function canCreateSquad(member, guildId) {
@@ -299,6 +315,71 @@ async function updateOperationMessage(client, op) {
   }
 }
 
+async function replyWithProfile(interaction) {
+  const data = loadData();
+  const targetUser = interaction.options.getUser('target') || interaction.user;
+  const targetMember = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+  const displayName = targetMember?.nickname || targetUser.displayName || targetUser.username;
+  const stats = ensureUserStats(data, targetUser.id);
+  const ratio = stats.joined > 0 ? Math.round((stats.attended / stats.joined) * 100) : 0;
+  const currentRank = [...ranks].reverse().find(r => stats.xp >= r.minXp) || ranks[0];
+  const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null;
+  const progress = nextRank ? `\n*Next Promotion: ${nextRank.name} (${stats.xp}/${nextRank.minXp} XP)*` : '\n*Max Rank Achieved*';
+
+  const embed = new EmbedBuilder()
+    .setTitle(`ARCUS Service Record: ${displayName}`)
+    .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+    .addFields(
+      { name: 'Rank', value: `**${currentRank.name}**`, inline: true },
+      { name: 'Experience', value: `\`${stats.xp} XP\`${progress}`, inline: true },
+      { name: '\u200B', value: '\u200B', inline: true },
+      { name: 'Total Deployments', value: `\`${stats.joined}\``, inline: true },
+      { name: 'Successful Ops', value: `\`${stats.attended}\``, inline: true },
+      { name: 'Efficiency Rating', value: `\`${ratio}%\``, inline: true }
+    )
+    .setColor(ratio > 75 ? 0x00FF00 : ratio > 50 ? 0xFFFF00 : 0xED4245)
+    .setFooter({ text: 'Operational Excellence through Data Synchronization' })
+    .setTimestamp();
+
+  return interaction.reply({ embeds: [embed] });
+}
+
+async function replyWithLeaderboard(interaction) {
+  const data = loadData();
+  const userEntries = Object.entries(data.users);
+
+  if (userEntries.length === 0) {
+    return interaction.reply({ content: 'ARCUS: No operational data recorded yet.', flags: [MessageFlags.Ephemeral] });
+  }
+
+  const topOperators = userEntries
+    .map(([id, stats]) => {
+      const userStats = { joined: 0, attended: 0, xp: 0, medals: [], ...stats };
+      return { id, ...userStats, ratio: userStats.joined > 0 ? (userStats.attended / userStats.joined) : 0 };
+    })
+    .sort((a, b) => (b.xp || 0) - (a.xp || 0) || b.attended - a.attended || b.ratio - a.ratio)
+    .slice(0, 10);
+
+  let leaderboardText = '';
+  for (let i = 0; i < topOperators.length; i++) {
+    const entry = topOperators[i];
+    const user = await client.users.fetch(entry.id).catch(() => ({ username: 'Unknown Operator' }));
+    const member = await interaction.guild.members.fetch(entry.id).catch(() => null);
+    const finalName = member?.nickname || user.username;
+    const medal = i === 0 ? 'đźĄ‡' : i === 1 ? 'đźĄ' : i === 2 ? 'đźĄ‰' : `\`[${i + 1}]\``;
+    const rank = [...ranks].reverse().find(r => (entry.xp || 0) >= r.minXp) || ranks[0];
+    leaderboardText += `${medal} **${finalName}** â€” ${rank.name} (${entry.xp || 0} XP)\n`;
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle('đźŹ† ARCUS Operational Leaderboard')
+    .setDescription(leaderboardText)
+    .setColor(0xFFA500)
+    .setFooter({ text: 'Top 10 Operators based on successful attendance' });
+
+  return interaction.reply({ embeds: [embed] });
+}
+
 const client = new Client({ 
   intents: [
     GatewayIntentBits.Guilds, 
@@ -368,17 +449,19 @@ client.once(Events.ClientReady, async () => {
           .addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true))
           .addStringOption(o => o.setName('report').setDescription('The mission summary').setRequired(true)))
       .addSubcommand(sub =>
-        sub.setName('profile')
-          .setDescription('View your detailed operational service record')
-          .addUserOption(opt => opt.setName('target').setDescription('The user to view').setRequired(false)))
-      .addSubcommand(sub =>
-        sub.setName('leaderboard')
-          .setDescription('View the top performing operators in the system'))
-      .addSubcommand(sub =>
         sub.setName('clear_stats')
           .setDescription('Admin: Permanently wipe all attendance statistics'));
 
-  const commands = [commandData.toJSON()];
+  const profileCommand = new SlashCommandBuilder()
+      .setName('profile')
+      .setDescription('View an ARCUS operational service record')
+      .addUserOption(opt => opt.setName('target').setDescription('The user to view').setRequired(false));
+
+  const leaderboardCommand = new SlashCommandBuilder()
+      .setName('leaderboard')
+      .setDescription('View the top ARCUS operators');
+
+  const commands = [commandData.toJSON(), profileCommand.toJSON(), leaderboardCommand.toJSON()];
 
   try {
     const guilds = client.guilds.cache.map(g => g.id);
@@ -387,6 +470,9 @@ client.once(Events.ClientReady, async () => {
       console.warn(`ARCUS Warning: Bot is not in any guilds. Command sync skipped.`);
       return;
     }
+
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] })
+      .catch(err => console.error('Global command cleanup failed:', err));
 
     for (const gId of guilds) {
       console.log(`ARCUS: Syncing commands for Guild: ${gId}`);
@@ -435,6 +521,12 @@ client.once(Events.ClientReady, async () => {
 client.on('interactionCreate', async (interaction) => { // FIX: Corrected async function syntax
   try {
     if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === 'profile') {
+        return replyWithProfile(interaction);
+      }
+      if (interaction.commandName === 'leaderboard') {
+        return replyWithLeaderboard(interaction);
+      }
       if (interaction.commandName !== 'op') return;
       const subcommand = interaction.options.getSubcommand();
 
