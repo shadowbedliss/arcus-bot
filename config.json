@@ -1,0 +1,19 @@
+{
+  "guilds": {
+    "1485199972252258364": {
+      "defaultGuildId": "1485199972252258364",
+      "authorizedRoles": [
+        "Admin"
+      ],
+      "eventCreatorRoles": [],
+      "operationsChannelId": "1485199972801581149",
+      "maxSquadSize": 4,
+      "selectableRoles": [
+        "Squad Lead",
+        "Rifleman",
+        "Medic",
+        "Sniper"
+      ]
+    }
+  }
+}
