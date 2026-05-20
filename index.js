@@ -212,10 +212,10 @@ function canCreateSquad(member, guildId) {
 
 function buildActionRow(op) {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`op:join:${op.id}`).setLabel('✅ Join').setStyle(ButtonStyle.Success).setDisabled(op.locked),
-    new ButtonBuilder().setCustomId(`op:leave:${op.id}`).setLabel('❌ Leave').setStyle(ButtonStyle.Danger).setDisabled(op.locked),
-    new ButtonBuilder().setCustomId(`op:role:${op.id}`).setLabel('🎯 Role').setStyle(ButtonStyle.Primary).setDisabled(op.locked),
-    new ButtonBuilder().setCustomId(`op:squad:${op.id}`).setLabel('➕ Squad').setStyle(ButtonStyle.Secondary).setDisabled(op.locked)
+    new ButtonBuilder().setCustomId(`op:join:${op.id}`).setLabel('Join').setEmoji('✅').setStyle(ButtonStyle.Success).setDisabled(op.locked),
+    new ButtonBuilder().setCustomId(`op:leave:${op.id}`).setLabel('Leave').setEmoji('❌').setStyle(ButtonStyle.Danger).setDisabled(op.locked),
+    new ButtonBuilder().setCustomId(`op:role:${op.id}`).setLabel('Role').setEmoji('🎯').setStyle(ButtonStyle.Primary).setDisabled(op.locked),
+    new ButtonBuilder().setCustomId(`op:squad:${op.id}`).setLabel('Squad').setEmoji('➕').setStyle(ButtonStyle.Secondary).setDisabled(op.locked)
   );
 }
 
@@ -331,7 +331,7 @@ const client = new Client({
     GatewayIntentBits.Guilds, 
     GatewayIntentBits.GuildMessages, 
     GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildMembers, 
+    GatewayIntentBits.GuildMembers, // Required to read member roles and permissions
     GatewayIntentBits.GuildScheduledEvents
   ], 
   partials: [Partials.Channel] 
@@ -479,11 +479,13 @@ client.on('interactionCreate', async (interaction) => {
           const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
               .setCustomId(`op:setup:${interaction.guildId}:${targetChannelId}`)
-              .setLabel('📝 Setup Operation')
+              .setLabel('Setup Operation')
+              .setEmoji('📝')
               .setStyle(ButtonStyle.Primary),
             new ButtonBuilder()
               .setCustomId(`op:template_list:${interaction.guildId}:${targetChannelId}`)
-              .setLabel('📂 Use Template')
+              .setLabel('Use Template')
+              .setEmoji('📂')
               .setStyle(ButtonStyle.Secondary)
               .setDisabled(!(guildConfig.templates && guildConfig.templates.length > 0))
           );
@@ -767,7 +769,41 @@ client.on('interactionCreate', async (interaction) => {
           .setFooter({ text: 'Operational Excellence through Data Synchronization' })
           .setTimestamp();
 
-        return interaction.reply({ embeds: [embed] });
+        const components = [];
+        if (isAuthorized(interaction.member, interaction.guildId)) {
+          const row = new ActionRowBuilder();
+          
+          row.addComponents(
+            new ButtonBuilder()
+              .setCustomId(`op:prof_edit:${targetUser.id}`)
+              .setLabel('Edit Record')
+              .setEmoji('📝')
+              .setStyle(ButtonStyle.Secondary)
+          );
+
+          if (nextRank && !nextRank.appointed) {
+            row.addComponents(
+              new ButtonBuilder()
+                .setCustomId(`op:prof_promote:${targetUser.id}`)
+                .setLabel('Promote')
+                .setEmoji('🎖️')
+                .setStyle(ButtonStyle.Primary)
+            );
+          }
+
+          if (currentRank.name === 'Recruit' && !stats.passedBCT) {
+            row.addComponents(
+              new ButtonBuilder()
+                .setCustomId(`op:bct_pass:${targetUser.id}`)
+                .setLabel('Mark BCT Passed')
+                .setEmoji('✅')
+                .setStyle(ButtonStyle.Success)
+            );
+          }
+          if (row.components.length > 0) components.push(row);
+        }
+
+        return interaction.reply({ embeds: [embed], components });
       }
 
       if (subcommand === 'leaderboard') {
@@ -789,6 +825,7 @@ client.on('interactionCreate', async (interaction) => {
           const member = await interaction.guild.members.fetch(entry.id).catch(() => null); // Fetch GuildMember for nickname
           const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `\`${i + 1}.\``;
 
+          const finalName = member?.nickname || user.username;
           const rank = getRank(member, entry.stats);
 
           leaderboardText += `${medal} **${finalName}** — ${rank.name}\n`;
@@ -827,7 +864,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const row2 = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('settings:main').setLabel('Home').setStyle(ButtonStyle.Primary).setEmoji('🏠'),
-          new ButtonBuilder().setCustomId(`settings:edit:main`).setLabel('Edit').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`settings:edit:main`).setLabel('Edit').setEmoji('📝').setStyle(ButtonStyle.Success),
           new ButtonBuilder().setCustomId('settings:close').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🛑')
         );
 
@@ -842,8 +879,7 @@ client.on('interactionCreate', async (interaction) => {
       const parts = customId.split(':');
       const namespace = parts[0];
       const action = parts[1];
-      // Use slice to capture the full ID in case it contains colons (though currently it shouldn't)
-      const targetId = parts.slice(2).join(':'); 
+      const targetId = parts[2]; // FIX: Corrected targetId assignment
 
     // Handle template_list button (from /op create DM) - This is an initial response (showing a modal), so no deferUpdate() needed here.
     if (namespace === 'op' && action === 'template_list') { // FIX: Added missing closing brace
@@ -863,6 +899,17 @@ client.on('interactionCreate', async (interaction) => {
         .addOptions(options);
 
       return interaction.reply({ content: 'ARCUS: Select a template:', components: [new ActionRowBuilder().addComponents(select)], flags: [MessageFlags.Ephemeral] });
+    }
+
+    if (namespace === 'op' && action === 'bct_pass') {
+      if (!isAuthorized(interaction.member, interaction.guildId)) {
+        return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+      }
+      const data = loadData();
+      const stats = ensureUserStats(data, targetId);
+      stats.passedBCT = true;
+      saveData(data);
+      return interaction.reply({ content: `✅ Successfully marked <@${targetId}> as BCT Passed.`, flags: [MessageFlags.Ephemeral] });
     }
 
     // Handle settings:edit button - This is an initial response (showing a modal or new message), so no deferUpdate() needed here.
@@ -913,7 +960,7 @@ client.on('interactionCreate', async (interaction) => {
 
       const row2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('settings:main').setLabel('Home').setStyle(ButtonStyle.Primary).setEmoji('🏠'),
-        new ButtonBuilder().setCustomId(`settings:edit:${category}`).setLabel('Edit').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`settings:edit:${category}`).setLabel('Edit').setEmoji('📝').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('settings:close').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🛑')
       );
 
@@ -955,7 +1002,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (namespace === 'op' && action === 'prof_edit') {
-      if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.followUp({ content: 'Unauthorized.', flags: [MessageFlags.Ephemeral] });
+      if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'Unauthorized.', flags: [MessageFlags.Ephemeral] });
       const data = loadData();
       const ustats = ensureUserStats(data, targetId);
       const modal = new ModalBuilder().setCustomId(`op:modal:prof_edit:${targetId}`).setTitle('Edit Operator Record');
@@ -974,7 +1021,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (namespace === 'op' && action === 'prof_promote') {
-      if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.followUp({ content: 'Unauthorized.', flags: [MessageFlags.Ephemeral] });
+      if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'Unauthorized.', flags: [MessageFlags.Ephemeral] });
       await interaction.deferUpdate();
       const data = loadData();
       const stats = ensureUserStats(data, targetId);
