@@ -212,7 +212,6 @@ function canCreateSquad(member, guildId) {
 
 function buildActionRow(op) {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`op:join:${op.id}`).setLabel('Join').setEmoji('✅').setStyle(ButtonStyle.Success).setDisabled(op.locked),
     new ButtonBuilder().setCustomId(`op:leave:${op.id}`).setLabel('Leave').setEmoji('❌').setStyle(ButtonStyle.Danger).setDisabled(op.locked),
     new ButtonBuilder().setCustomId(`op:role:${op.id}`).setLabel('Role').setEmoji('🎯').setStyle(ButtonStyle.Primary).setDisabled(op.locked),
     new ButtonBuilder().setCustomId(`op:squad:${op.id}`).setLabel('Squad').setEmoji('➕').setStyle(ButtonStyle.Secondary).setDisabled(op.locked)
@@ -292,7 +291,6 @@ function findUserSquad(op, userId) {
 
 function ensureUserStats(data, userId) {
   if (!data.users[userId]) {
-    // Initialize with all expected fields
     data.users[userId] = { joined: 0, attended: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0, councilNote: "" };
   }
   // Data migration for existing users
@@ -1460,7 +1458,8 @@ client.on('interactionCreate', async (interaction) => {
       saveData(data);
       return interaction.reply({ content: `✅ Updated record for <@${targetUserId}>.`, flags: [MessageFlags.Ephemeral] });
     }
-  } catch (error) {
+    }
+  } catch (error) { // This catch belongs to the interactionCreate try block
     console.error('ARCUS: Global Interaction Error:', error);
     if (!interaction.replied && !interaction.deferred) {
       await interaction.reply({ content: 'ARCUS Internal Error: System failed to process interaction.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
