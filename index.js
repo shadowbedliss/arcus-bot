@@ -142,26 +142,24 @@ function parseOpTime(timeStr) {
 const squadNames = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Gamma', 'Hotel', 'India'];
 
 // --- Rank Structure ---
-const ranks = [ // Ranks are based on 'attended' (completed) operations
+const ranks = [
   { name: 'Recruit', minAttended: 0 },
-  { name: 'Sergeant', minAttended: 3, requireBCT: true },   
+  { name: 'Sergeant', minAttended: 3, requireBCT: true },
   { name: 'Lieutenant', minAttended: 6, minRecruits: 2 },
   { name: 'Captain', minAttended: 10, minLed: 3, minRecruits: 4 }
-]
+];
 
 function getRank(member, stats) {
-  let currentRank = null;
-  if (member) {
+  if (member && member.roles) {
     const roleCache = member.roles.cache;
-    if (roleCache && roleCache.size > 0) {
-      const roleNames = roleCache.map(role => role.name.toLowerCase().trim());
-      currentRank = [...ranks].reverse().find(r => roleNames.includes(r.name.toLowerCase().trim()));
+    for (let i = ranks.length - 1; i >= 0; i--) {
+      const rank = ranks[i];
+      if (roleCache.some(role => role.name.toLowerCase().trim() === rank.name.toLowerCase().trim())) {
+        return rank;
+      }
     }
   }
-  if (!currentRank) {
-    currentRank = [...ranks].reverse().find(r => (stats.attended || 0) >= r.minAttended) || ranks[0];
-  }
-  return currentRank;
+  return ranks[0]; // Default for newcomers
 }
 
 function formatSquadListing(op, guildId) {
@@ -691,9 +689,8 @@ client.on('interactionCreate', async (interaction) => {
           .setThumbnail(target.displayAvatarURL())
           .addFields(
             { name: 'Rank', value: `**${currentRank.name}**`, inline: true }, // Display rank
-            { name: 'Operations Joined', value: stats.joined.toString(), inline: true },
-            { name: 'Operations Attended', value: stats.attended.toString(), inline: true },
-            { name: 'Attendance Rating', value: `${ratio}%`, inline: true }
+            { name: 'Total Deployments', value: stats.joined.toString(), inline: true },
+            { name: 'Attendance Rating', value: `\`${ratio}%\``, inline: true }
           )
           .setColor(ratio > 75 ? 0x00FF00 : ratio > 50 ? 0xFFFF00 : 0xFF0000);
 
@@ -712,15 +709,19 @@ client.on('interactionCreate', async (interaction) => {
         const ratio = stats.joined > 0 ? Math.round((stats.attended / stats.joined) * 100) : 0;
         const currentRank = getRank(targetMember, stats);
         const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null;
-        let progressText = '\n*Max Rank Achieved*';
+        let progressText = '*Max Rank Achieved*';
+        let opsToNextRank = 'N/A';
+
         if (nextRank) {
           const reqs = [];
           const opsNeeded = Math.max(0, nextRank.minAttended - (stats.attended || 0));
+          opsToNextRank = `\`${opsNeeded}\``;
+          
           if (opsNeeded > 0) reqs.push(`${opsNeeded} Ops`);
           if (nextRank.requireBCT && !stats.passedBCT) reqs.push('BCT');
           if (nextRank.minLed && (stats.ledOps || 0) < nextRank.minLed) reqs.push(`${nextRank.minLed - (stats.ledOps || 0)} Led Ops`);
           if (nextRank.minRecruits && (stats.recruits || 0) < nextRank.minRecruits) reqs.push(`${nextRank.minRecruits - (stats.recruits || 0)} Recruits`);
-          progressText = `\n*Next Promotion: ${nextRank.name} (${reqs.length > 0 ? reqs.join(', ') : 'Eligible'})*`;
+          progressText = `*Next Promotion: ${nextRank.name} (${reqs.length > 0 ? reqs.join(', ') : 'Eligible'})*`;
         }
 
         const embed = new EmbedBuilder()
@@ -728,10 +729,11 @@ client.on('interactionCreate', async (interaction) => {
           .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
           .addFields(
             { name: 'Rank', value: `**${currentRank.name}**`, inline: true },
-            { name: 'Experience', value: `\`${stats.xp || 0} XP\`${progressText}`, inline: true },
+            { name: 'Ops to Next Rank', value: opsToNextRank, inline: true },
+            { name: 'Deployment Status', value: `Joined: \`${stats.joined}\`\nEfficiency: \`${ratio}%\``, inline: true },
             { name: 'Personnel Stats', value: `Led: \`${stats.ledOps || 0}\`\nRecruits: \`${stats.recruits || 0}\``, inline: true },
-            { name: 'Deployment Status', value: `Joined: \`${stats.joined}\`\nAttended: \`${stats.attended}\`\nEfficiency: \`${ratio}%\``, inline: true },
-            { name: 'Qualification Status', value: `BCT: ${stats.passedBCT ? '✅ Passed' : '❌ Pending'}\nNotes: ${stats.promotionNotes || '_No notes record_'}`, inline: true }
+            { name: 'Promotion Req.', value: progressText, inline: false },
+            { name: 'Qualification Status', value: `BCT: ${stats.passedBCT ? '✅ Passed' : '❌ Pending'}\nNotes: ${stats.promotionNotes || '_No notes record_'}`, inline: false }
           )
           .setColor(ratio > 75 ? 0x00FF00 : ratio > 50 ? 0xFFFF00 : 0xED4245)
           .setFooter({ text: 'Operational Excellence through Data Synchronization' })
@@ -749,8 +751,8 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const topOperators = userEntries
-          .map(([id, rawStats]) => ({ id, stats: ensureUserStats(data, id), ratio: (rawStats.joined > 0 ? (rawStats.attended / rawStats.joined) : 0) }))
-          .sort((a, b) => (b.xp || 0) - (a.xp || 0) || b.attended - a.attended || b.ratio - a.ratio) // Sort by XP, then attended, then ratio
+          .map(([id, rawStats]) => ({ id, stats: rawStats, ratio: (rawStats.joined > 0 ? (rawStats.attended / rawStats.joined) : 0) }))
+          .sort((a, b) => b.stats.attended - a.stats.attended || b.ratio - a.ratio)
           .slice(0, 10);
 
         let leaderboardText = '';
@@ -763,7 +765,7 @@ client.on('interactionCreate', async (interaction) => {
 
           const rank = getRank(member, entry.stats);
 
-          leaderboardText += `${medal} **${finalName}** — ${rank.name} (${entry.xp || 0} XP)\n`; // FIX: Use finalName and remove duplicate line
+          leaderboardText += `${medal} **${finalName}** — ${rank.name} (${entry.stats.attended} Ops)\n`;
         }
 
         const embed = new EmbedBuilder()
@@ -1182,7 +1184,6 @@ client.on('interactionCreate', async (interaction) => {
         userStats.joined += 1;
         if (attended) {
           userStats.attended += 1;
-          userStats.xp = (userStats.xp || 0) + 100;
         }
       }
 

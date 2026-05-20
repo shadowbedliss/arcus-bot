@@ -12,6 +12,11 @@ if (!TOKEN || !CLIENT_ID) {
   process.exit(1);
 }
 
+if (CLIENT_ID === 'your_actual_client_id_here') {
+  console.error('ARCUS Critical: You are still using the placeholder CLIENT_ID in your .env file.');
+  process.exit(1);
+}
+
 function buildCommands() {
   const opCommand = new SlashCommandBuilder()
     .setName('op')
