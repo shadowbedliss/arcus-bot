@@ -1142,6 +1142,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       const caps = { 'Medic': 1, 'Overwatch': 1, 'Demolitions': 1, 'Squad Lead': 1 };
       if (caps[selectedRole]) {
         const count = squad.members.filter(m => m.role === selectedRole).length; // FIX: Count all members with the role
+        const count = squad.members.filter(m => m.role === selectedRole && m.userId !== interaction.user.id).length;
         if (count >= caps[selectedRole]) { // FIX: Ensure capacity check is correct
           return interaction.followUp({ content: `ARCUS: This squad already has a ${selectedRole}.`, flags: [MessageFlags.Ephemeral] }); // FIX: Use flags
         }
