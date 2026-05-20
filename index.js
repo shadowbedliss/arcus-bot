@@ -1387,7 +1387,7 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.reply({ content: 'ARCUS Internal Error: System failed to process interaction.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
     }
   }
-});
+}); // End of interactionCreate
 
 // --- Start Bot ---
 client.login(TOKEN);
