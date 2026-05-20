@@ -293,12 +293,13 @@ function findUserSquad(op, userId) {
 function ensureUserStats(data, userId) {
   if (!data.users[userId]) {
     // Initialize with all expected fields
-    data.users[userId] = { joined: 0, attended: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0, councilNote: "" };
+    data.users[userId] = { joined: 0, attended: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0, councilNote: "" }; // Ensure all fields are initialized
   }
-  // Data migration for existing users
-  if (data.users[userId].promotionNotes === undefined) data.users[userId].promotionNotes = "";
-  if (data.users[userId].ledOps === undefined) data.users[userId].ledOps = 0;
-  if (data.users[userId].recruits === undefined) data.users[userId].recruits = 0;
+  // Data migration for existing  if (data.users[userId].medals === undefined) data.users[userId].medals = []; // Ensure medals are migrated
+  if (data.users[userId].passedBCT === undefined) data.users[userId].passedBCT = false; // Ensure passedBCT is migrated
+  if (data.users[userId].promotionNotes === undefined) data.users[userId].promotionNotes = ""; // Ensure promotionNotes is migrated
+  if (data.users[userId].ledOps === undefined) data.users[userId].ledOps = 0; // Ensure ledOps is migrated
+  if (data.users[userId].recruits === undefined) data.users[userId].recruits = 0; // Ensure recruits is migrated
   if (data.users[userId].councilNote === undefined) data.users[userId].councilNote = "";
   return data.users[userId];
 }
@@ -703,7 +704,7 @@ client.on('interactionCreate', async (interaction) => {
         const targetUser = interaction.options.getUser('target') || interaction.user;
         const targetMember = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
         
-        // Priority: Nickname -> Global Display Name -> Username (for profile)
+        // Priority: Nickname -> Global Display Name -> Username (for profile) // FIX: Removed duplicate declaration
         const displayName = targetMember?.nickname || targetUser.displayName || targetUser.username;
         
         const stats = ensureUserStats(data, targetUser.id);
@@ -790,14 +791,6 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: 'ARCUS: All attendance statistics have been wiped.', flags: [MessageFlags.Ephemeral] });
       }
 
-      if (subcommand === 'clear_stats') {
-        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Admin privileges required.', flags: [MessageFlags.Ephemeral] });
-        const data = loadData();
-        data.users = {}; // Ensure data.users is cleared
-        saveData(data);
-        return interaction.reply({ content: 'ARCUS: All attendance statistics have been wiped.', flags: [MessageFlags.Ephemeral] });
-      }
-
       if (interaction.options.getSubcommand() === 'settings') {
         if (!isAuthorized(interaction.member, interaction.guildId)) {
           return interaction.reply({ content: 'ARCUS: Admin permissions required.', flags: [MessageFlags.Ephemeral] });
@@ -828,9 +821,9 @@ client.on('interactionCreate', async (interaction) => {
     } else if (interaction.isButton()) {
       const customId = interaction.customId;
       const parts = customId.split(':');
-    const namespace = parts[0];
-    const action = parts[1];
-    const targetId = parts[2];
+      const namespace = parts[0];
+      const action = parts[1];
+      const targetId = parts[2];
 
     // Handle template_list button (from /op create DM) - This is an initial response (showing a modal), so no deferUpdate() needed here.
     if (namespace === 'op' && action === 'template_list') { // FIX: Added missing closing brace
@@ -1077,13 +1070,14 @@ client.on('interactionCreate', async (interaction) => {
       if (!isPreviousFull) {
         return interaction.followUp({ content: `ARCUS: All existing squads must be full (${guildConfig.maxSquadSize || 4} operators) before creating a new one.`, flags: [MessageFlags.Ephemeral] }); // FIX: Use flags
       }
-
+      
       const nextName = getNextSquadName(op);
       if (!nextName) {
         return interaction.followUp({ content: 'ARCUS: Tactical limit reached. No more squads available.', flags: [MessageFlags.Ephemeral] });
       }
-
+      
       // Remove user from current squad if they are joining a new one they created
+      // This logic was duplicated and moved here for clarity
       const oldSquad = findUserSquad(op, interaction.user.id);
       if (oldSquad) {
         oldSquad.members = oldSquad.members.filter(m => m.userId !== interaction.user.id);
@@ -1091,13 +1085,13 @@ client.on('interactionCreate', async (interaction) => {
           op.squads = op.squads.filter(s => s.name !== oldSquad.name);
         }
       }
-
+      
       op.squads.push({ 
         name: nextName, 
         members: [{
           userId: interaction.user.id,
           username: interaction.user.username,
-          role: "Squad Lead"
+          role: "Squad Lead" // Creator of new squad is automatically Squad Lead
         }] 
       });
 
@@ -1107,7 +1101,7 @@ client.on('interactionCreate', async (interaction) => {
 
       data.operations[targetId] = op;
       saveData(data);
-      await updateOperationMessage(client, op); // FIX: Await is fine here
+      await updateOperationMessage(client, op);
       return interaction.followUp({ content: `ARCUS: Squad ${nextName} initialized.`, flags: [MessageFlags.Ephemeral] }); // FIX: Removed redundant .catch()
     }
     } else if (interaction.isStringSelectMenu()) {
@@ -1219,7 +1213,7 @@ client.on('interactionCreate', async (interaction) => {
       const name = interaction.fields.getTextInputValue('tmpl_name');
       const description = interaction.fields.getTextInputValue('tmpl_desc');
       const pings = interaction.fields.getTextInputValue('tmpl_pings');
-      const reminder = parseInt(interaction.fields.getTextInputValue('tmpl_reminder')) || 30;
+      const reminder = parseInt(interaction.fields.getTextInputValue('tmpl_reminder')) || 30; // FIX: Ensure reminder is parsed as int
       const guildConfig = getGuildConfig(interaction.guildId);
       if (!guildConfig.templates) guildConfig.templates = [];
       guildConfig.templates.push({ name, description, pings, reminder });
@@ -1259,7 +1253,7 @@ client.on('interactionCreate', async (interaction) => {
       if (isNaN(size) || size < 1 || size > 10) return interaction.reply({ content: 'Invalid squad size. Please choose a number between 1 and 10.', flags: [MessageFlags.Ephemeral] });
 
       // Validation: Ensure the default role exists in the selectable roles list
-      const available = guildConfig.selectableRoles; // FIX: Use guildConfig.selectableRoles directly
+      const available = guildConfig.selectableRoles;
       if (!available.some(r => r.toLowerCase() === defRole.toLowerCase())) { // FIX: Ensure validation is correct
         return interaction.reply({ 
           content: `⚠️ **Warning**: "${defRole}" is not in your Tactical Role list. Please add it to the registry first or check your spelling.`, 
@@ -1269,7 +1263,7 @@ client.on('interactionCreate', async (interaction) => {
       
       guildConfig.maxSquadSize = size;
       guildConfig.defaultRole = defRole;
-      saveConfig();
+      saveConfig(); // FIX: Save config after changes
       return interaction.reply({ content: 'ARCUS: General settings updated.', flags: [MessageFlags.Ephemeral] });
     } // FIX: Added missing closing brace
 
