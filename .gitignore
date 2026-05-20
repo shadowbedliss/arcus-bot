@@ -1,7 +1,5 @@
 node_modules/
-.vscode/
 .env
 config.json
 data.json
-.DS_Store
-*.log
+*.js.tmp
