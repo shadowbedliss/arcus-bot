@@ -331,7 +331,7 @@ const client = new Client({
     GatewayIntentBits.Guilds, 
     GatewayIntentBits.GuildMessages, 
     GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildMembers, // Required to read member roles and permissions
+    GatewayIntentBits.GuildMembers, 
     GatewayIntentBits.GuildScheduledEvents
   ], 
   partials: [Partials.Channel] 
@@ -842,7 +842,8 @@ client.on('interactionCreate', async (interaction) => {
       const parts = customId.split(':');
       const namespace = parts[0];
       const action = parts[1];
-      const targetId = parts[2]; // FIX: Corrected targetId assignment
+      // Use slice to capture the full ID in case it contains colons (though currently it shouldn't)
+      const targetId = parts.slice(2).join(':'); 
 
     // Handle template_list button (from /op create DM) - This is an initial response (showing a modal), so no deferUpdate() needed here.
     if (namespace === 'op' && action === 'template_list') { // FIX: Added missing closing brace
@@ -1412,13 +1413,6 @@ client.on('interactionCreate', async (interaction) => {
       saveData(data);
       return interaction.reply({ content: `✅ Updated record for <@${targetUserId}>.`, flags: [MessageFlags.Ephemeral] });
     }
-  } catch (error) {
-    console.error('ARCUS: Global Interaction Error:', error);
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ content: 'ARCUS Internal Error: System failed to process interaction.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
-    }
-  }
-});
   } catch (error) {
     console.error('ARCUS: Global Interaction Error:', error);
     if (!interaction.replied && !interaction.deferred) {
