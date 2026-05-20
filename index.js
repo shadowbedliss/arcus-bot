@@ -740,16 +740,31 @@ client.on('interactionCreate', async (interaction) => {
           }
         }
 
+        // Qualification Status: BCT only visible for Recruits
+        const bctLine = currentRank.name === 'Recruit' 
+          ? `BCT: ${stats.passedBCT ? '✅ Passed' : '❌ Pending'}\n` 
+          : '';
+        
+        // Council Assignment: Visible for Council rank and above
+        const councilRankIndex = ranks.findIndex(r => r.name === 'Council');
+        const currentRankIndex = ranks.indexOf(currentRank);
+        const isCouncilOrAbove = currentRankIndex >= councilRankIndex;
+
         const embed = new EmbedBuilder()
           .setTitle(`ARCUS Service Record: ${displayName}`)
           .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
           .addFields(
             { name: 'Rank', value: `**${currentRank.name}**`, inline: true },
             { name: 'Ops to Next Rank', value: opsToNextRank, inline: true },
-            { name: 'Personnel Stats', value: `Led: \`${stats.ledOps || 0}\`\nRecruits: \`${stats.recruits || 0}\``, inline: false },
             { name: 'Promotion Req.', value: progressText, inline: false },
-            { name: 'Qualification Status', value: `BCT: ${stats.passedBCT ? '✅ Passed' : '❌ Pending'}\nNotes: ${stats.promotionNotes || '_No notes record_'}`, inline: false }
+            { name: 'Qualification Status', value: `${bctLine}Notes: ${stats.promotionNotes || '_No notes record_'}`, inline: false }
           )
+
+        if (isCouncilOrAbove) {
+          embed.addFields({ name: 'Council Assignment', value: stats.councilNote || '_No specific assignment noted_', inline: false });
+        }
+
+        embed
           .setColor(0x5865f2)
           .setFooter({ text: 'Operational Excellence through Data Synchronization' })
           .setTimestamp();
@@ -766,8 +781,7 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const topOperators = userEntries
-          .map(([id, rawStats]) => ({ id, stats: rawStats }))
-          .map(([id, rawStats]) => ({ id, stats: rawStats, attended: rawStats.attended || 0 })) // Ensure 'attended' is present for sorting
+          .map(([id, rawStats]) => ({ id, stats: rawStats, attended: rawStats.attended || 0 }))
           .sort((a, b) => b.stats.attended - a.stats.attended)
           .slice(0, 10);
 
@@ -1379,17 +1393,25 @@ client.on('interactionCreate', async (interaction) => {
       const data = loadData();
       const ustats = ensureUserStats(data, targetUserId);
       const bctVal = interaction.fields.getTextInputValue('bct_status').toLowerCase();
-      const joinedOpsVal = parseInt(interaction.fields.getTextInputValue('joined_ops'));
-      const attendedOpsVal = parseInt(interaction.fields.getTextInputValue('attended_ops'));
-      const ledOpsVal = parseInt(interaction.fields.getTextInputValue('led_ops'));
-      const recruitsVal = parseInt(interaction.fields.getTextInputValue('recruit_count'));
-      const notesVal = interaction.fields.getTextInputValue('prom_notes');
       ustats.passedBCT = (bctVal === 'yes' || bctVal === 'true');
-      if (!isNaN(joinedOpsVal)) ustats.joined = joinedOpsVal;
-      if (!isNaN(attendedOpsVal)) ustats.attended = attendedOpsVal;
-      if (!isNaN(ledOpsVal)) ustats.ledOps = ledOpsVal;
-      if (!isNaN(recruitsVal)) ustats.recruits = recruitsVal;
-      ustats.promotionNotes = notesVal;
+      
+      const fields = [
+        { id: 'joined_ops', prop: 'joined' },
+        { id: 'attended_ops', prop: 'attended' },
+        { id: 'led_ops', prop: 'ledOps' },
+        { id: 'recruit_count', prop: 'recruits' }
+      ];
+
+      fields.forEach(f => {
+        const val = parseInt(interaction.fields.getTextInputValue(f.id));
+        if (!isNaN(val)) ustats[f.prop] = val;
+      });
+
+      ustats.promotionNotes = interaction.fields.getTextInputValue('prom_notes');
+      // Add council note to the editor modal fields if you want to edit it here
+      const cNote = interaction.fields.fields.get('council_note');
+      if (cNote) ustats.councilNote = cNote.value;
+
       saveData(data);
       return interaction.reply({ content: `✅ Updated qualifications for <@${targetUserId}>.`, flags: [MessageFlags.Ephemeral] });
     } // Closing brace for the prof_edit modal handler
