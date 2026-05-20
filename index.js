@@ -296,8 +296,6 @@ function ensureUserStats(data, userId) {
     data.users[userId] = { joined: 0, attended: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0, councilNote: "" };
   }
   // Data migration for existing users
-  if (data.users[userId].medals === undefined) data.users[userId].medals = [];
-  if (data.users[userId].passedBCT === undefined) data.users[userId].passedBCT = false;
   if (data.users[userId].promotionNotes === undefined) data.users[userId].promotionNotes = "";
   if (data.users[userId].ledOps === undefined) data.users[userId].ledOps = 0;
   if (data.users[userId].recruits === undefined) data.users[userId].recruits = 0;
@@ -688,7 +686,6 @@ client.on('interactionCreate', async (interaction) => {
         const currentRank = getRank(targetMember, stats); // Get rank using the helper
         const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null; // Re-calculate nextRank for consistency
         const opsToNextRank = nextRank && !nextRank.appointed ? `\`${Math.max(0, nextRank.minAttended - (stats.attended || 0))}\`` : 'N/A'; // Re-calculate opsToNextRank for consistency
-
         const embed = new EmbedBuilder()
           .setTitle(`ARCUS Service Record: ${targetMember?.nickname || target.username}`)
           .setThumbnail(target.displayAvatarURL())
@@ -789,6 +786,14 @@ client.on('interactionCreate', async (interaction) => {
         if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Admin privileges required.', flags: [MessageFlags.Ephemeral] });
         const data = loadData();
         data.users = {};
+        saveData(data);
+        return interaction.reply({ content: 'ARCUS: All attendance statistics have been wiped.', flags: [MessageFlags.Ephemeral] });
+      }
+
+      if (subcommand === 'clear_stats') {
+        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Admin privileges required.', flags: [MessageFlags.Ephemeral] });
+        const data = loadData();
+        data.users = {}; // Ensure data.users is cleared
         saveData(data);
         return interaction.reply({ content: 'ARCUS: All attendance statistics have been wiped.', flags: [MessageFlags.Ephemeral] });
       }
@@ -1371,7 +1376,7 @@ client.on('interactionCreate', async (interaction) => {
       const ustats = ensureUserStats(data, targetUserId);
       const bctVal = interaction.fields.getTextInputValue('bct_status').toLowerCase();
       const joinedOpsVal = parseInt(interaction.fields.getTextInputValue('joined_ops'));
-      ustats.passedBCT = (bctVal === 'yes' || bctVal === 'true');
+      ustats.passedBCT = (bctVal === 'yes' || bctVal === 'true'); // Correctly set BCT status
       
       const fields = [
         { id: 'joined_ops', prop: 'joined' },
@@ -1386,7 +1391,7 @@ client.on('interactionCreate', async (interaction) => {
       });
 
       ustats.promotionNotes = interaction.fields.getTextInputValue('prom_notes');
-      ustats.councilNote = interaction.fields.getTextInputValue('council_note'); // Save council note
+      ustats.councilNote = interaction.fields.getTextInputValue('council_note'); // Save council note from modal
       saveData(data);
       return interaction.reply({ content: `✅ Updated qualifications for <@${targetUserId}>.`, flags: [MessageFlags.Ephemeral] });
     } // Closing brace for the prof_edit modal handler
