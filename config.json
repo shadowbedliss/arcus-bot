@@ -15,6 +15,22 @@
         "Medic",
         "Sniper"
       ]
+    },
+    "1408390877537239171": {
+      "authorizedRoles": [
+        "Admin"
+      ],
+      "eventCreatorRoles": [],
+      "operationsChannelId": "",
+      "maxSquadSize": 4,
+      "selectableRoles": [
+        "Point Man",
+        "Overwatch",
+        "Medic",
+        "Demolitions"
+      ],
+      "templates": [],
+      "defaultRole": "Point Man"
     }
   }
 }

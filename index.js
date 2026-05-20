@@ -411,24 +411,22 @@ client.once(Events.ClientReady, async () => {
   } catch (error) {
     console.error('Failed registering commands:', error);
   }
- 
+
   // Reminder background task
   setInterval(async () => {
     const data = loadData();
     const now = Date.now();
     let changed = false;
- 
+
     for (const opId in data.operations) {
       const op = data.operations[opId];
       if (op.locked || !op.reminderMinutes || op.reminderSent) continue;
- 
       const startTime = parseOpTime(op.time);
       if (!startTime || isNaN(startTime)) continue;
- 
       const reminderThreshold = startTime - (op.reminderMinutes * 60000);
       if (now >= reminderThreshold) {
         const participants = op.participants || [];
-        for (const p of participants) {
+        for (const p of participants) { 
           try {
             const user = await client.users.fetch(p.userId);
             await user.send(`🔔 **ARCUS Reminder**: Operation **${op.name}** starts in approximately ${op.reminderMinutes} minutes!`);
@@ -445,16 +443,15 @@ client.once(Events.ClientReady, async () => {
 });
  
 client.on('interactionCreate', async (interaction) => {
+  const data = loadData();
   try {
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName !== 'op') return;
       const subcommand = interaction.options.getSubcommand();
- 
+
       if (subcommand === 'create') {
         const member = interaction.member;
-        if (!canCreateEvent(member, interaction.guildId)) {
-          return interaction.reply({ content: 'ARCUS: Unauthorized role.', flags: [MessageFlags.Ephemeral] });
-        }
+        if (!canCreateEvent(member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Unauthorized role.', flags: [MessageFlags.Ephemeral] });
  
         const guildConfig = getGuildConfig(interaction.guildId);
         const targetChannelId = guildConfig.operationsChannelId || interaction.channelId;
@@ -485,8 +482,6 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
  
-      const data = loadData();
- 
       if (subcommand === 'end') {
         const member = interaction.member;
         if (!isAuthorized(member, interaction.guildId)) {
@@ -506,7 +501,7 @@ client.on('interactionCreate', async (interaction) => {
         data.operations[opId] = op;
         saveData(data);
  
-        await updateOperationMessage(client, op);
+        await updateOperationMessage(client, op); 
  
         if (op.scheduledEventId) {
           try {
@@ -537,12 +532,10 @@ client.on('interactionCreate', async (interaction) => {
           console.error('ARCUS: DM failed:', err);
           await interaction.reply({ content: 'ARCUS: Operation locked, but failed to DM creator. Check DM settings.', flags: [MessageFlags.Ephemeral] });
         }
- 
         return;
       }
  
       if (subcommand === 'delete') {
-        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Admin privileges required.', flags: [MessageFlags.Ephemeral] });
         const opId = interaction.options.getString('id');
         const op = getOpById(data, opId);
         if (!op) return interaction.reply({ content: 'ARCUS: Operation not found.', flags: [MessageFlags.Ephemeral] });
@@ -744,13 +737,44 @@ client.on('interactionCreate', async (interaction) => {
           .setColor(0x5865f2)
           .setFooter({ text: 'Operational Excellence through Data Synchronization' })
           .setTimestamp();
- 
-        return interaction.reply({ embeds: [embed] });
+
+        const components = [];
+        if (isAuthorized(interaction.member, interaction.guildId)) {
+          const row = new ActionRowBuilder();
+          
+          row.addComponents(
+            new ButtonBuilder()
+              .setCustomId(`op:prof_edit:${targetUser.id}`)
+              .setLabel('📝 Edit Record')
+              .setStyle(ButtonStyle.Secondary)
+          );
+
+          if (nextRank && !nextRank.appointed) {
+            row.addComponents(
+              new ButtonBuilder()
+                .setCustomId(`op:prof_promote:${targetUser.id}`)
+                .setLabel('🎖️ Promote')
+                .setStyle(ButtonStyle.Primary)
+            );
+          }
+
+          if (currentRank.name === 'Recruit' && !stats.passedBCT) {
+            row.addComponents(
+              new ButtonBuilder()
+                .setCustomId(`op:bct_pass:${targetUser.id}`)
+                .setLabel('✅ Mark BCT Passed')
+                .setStyle(ButtonStyle.Success)
+            );
+          }
+          components.push(row);
+        }
+
+        return interaction.reply({ embeds: [embed], components });
       }
  
       if (subcommand === 'leaderboard') {
-        const userEntries = Object.entries(data.users);
  
+        const userEntries = Object.entries(data.users);
         if (userEntries.length === 0) {
           return interaction.reply({ content: 'ARCUS: No operational data recorded yet.', flags: [MessageFlags.Ephemeral] });
         }
@@ -825,19 +849,9 @@ client.on('interactionCreate', async (interaction) => {
       if (namespace === 'op' && action === 'template_list') {
         const guildId = parts[2] || interaction.guildId;
         const targetChannelId = parts[3];
- 
         const guildConfig = getGuildConfig(guildId);
-        const options = guildConfig.templates.map((t, idx) => ({
-          label: t.name,
-          description: t.description.substring(0, 50),
-          value: `template_${idx}_${guildId || 'null'}_${targetChannelId}`
-        }));
- 
-        const select = new StringSelectMenuBuilder()
-          .setCustomId(`op:load_template`)
-          .setPlaceholder('Select a template to use')
-          .addOptions(options);
- 
+        const options = guildConfig.templates.map((t, idx) => ({ label: t.name, description: t.description.substring(0, 50), value: `template_${idx}_${guildId || 'null'}_${targetChannelId}` }));
+        const select = new StringSelectMenuBuilder().setCustomId(`op:load_template`).setPlaceholder('Select a template to use').addOptions(options);
         return interaction.reply({ content: 'ARCUS: Select a template:', components: [new ActionRowBuilder().addComponents(select)], flags: [MessageFlags.Ephemeral] });
       }
  
@@ -923,40 +937,60 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
  
-      if (namespace === 'op' && action === 'prof_edit') {
-        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.followUp({ content: 'Unauthorized.', flags: [MessageFlags.Ephemeral] });
+      if (namespace === 'op' && action === 'bct_pass') {
+        if (!isAuthorized(interaction.member, interaction.guildId)) {
+          return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+        }
         const data = loadData();
+        const stats = ensureUserStats(data, targetId);
+        stats.passedBCT = true;
+        saveData(data);
+        return interaction.reply({ content: `✅ Successfully marked <@${targetId}> as BCT Passed.`, flags: [MessageFlags.Ephemeral] });
+      }
+
+      if (namespace === 'op' && action === 'prof_edit') {
+        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'Unauthorized.', flags: [MessageFlags.Ephemeral] });
         const ustats = ensureUserStats(data, targetId);
-        const modal = new ModalBuilder().setCustomId(`op:modal:prof_edit:${targetId}`).setTitle('Edit Operator Record');
- 
+
+        const member = await interaction.guild.members.fetch(targetId).catch(() => null);
+        const currentRank = getRank(member, ustats);
+        const modal = new ModalBuilder().setCustomId(`op:modal:prof_edit:${targetId}`).setTitle(`Edit Record: ${currentRank.name}`);
         const rows = [
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('bct_status').setLabel('BCT Passed? (yes/no)').setStyle(TextInputStyle.Short).setValue(ustats.passedBCT ? 'yes' : 'no')),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('attended_ops').setLabel('Attended Ops Count').setStyle(TextInputStyle.Short).setValue((ustats.attended || 0).toString())),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('led_ops').setLabel('Led Ops Count').setStyle(TextInputStyle.Short).setValue((ustats.ledOps || 0).toString())),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('recruit_count').setLabel('Recruits Brought In').setStyle(TextInputStyle.Short).setValue((ustats.recruits || 0).toString())),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('council_note').setLabel('Council Note / Assignment').setStyle(TextInputStyle.Paragraph).setRequired(false).setValue(ustats.councilNote || ''))
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('attended_ops').setLabel('Attended Ops').setStyle(TextInputStyle.Short).setValue((ustats.attended || 0).toString())),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('led_ops').setLabel('Led Ops').setStyle(TextInputStyle.Short).setValue((ustats.ledOps || 0).toString())),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('recruit_count').setLabel('Recruits').setStyle(TextInputStyle.Short).setValue((ustats.recruits || 0).toString())),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('prom_notes').setLabel('Promotion Notes').setStyle(TextInputStyle.Paragraph).setRequired(false).setValue(ustats.promotionNotes || ''))
         ];
+
+        if (currentRank.name === 'Recruit') rows.unshift(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('bct_status').setLabel('BCT Passed? (yes/no)').setStyle(TextInputStyle.Short).setValue(ustats.passedBCT ? 'yes' : 'no')));
+        else if (ranks.indexOf(currentRank) >= ranks.findIndex(r => r.name === 'Council')) rows.push(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('council_note').setLabel('Council Assignment').setStyle(TextInputStyle.Paragraph).setRequired(false).setValue(ustats.councilNote || '')));
  
         modal.addComponents(rows);
         return interaction.showModal(modal);
       }
  
       if (namespace === 'op' && action === 'prof_promote') {
-        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.followUp({ content: 'Unauthorized.', flags: [MessageFlags.Ephemeral] });
-        await interaction.deferUpdate();
-        const data = loadData();
+        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'Unauthorized.', flags: [MessageFlags.Ephemeral] });
+        
+        await interaction.deferUpdate(); // Now we defer because we're authorized to proceed
         const stats = ensureUserStats(data, targetId);
         const member = await interaction.guild.members.fetch(targetId).catch(() => null);
         if (!member) return interaction.followUp({ content: 'Operator no longer in server.', flags: [MessageFlags.Ephemeral] });
- 
+
         const currentRank = getRank(member, stats);
-        const nextRank = ranks[ranks.indexOf(currentRank) + 1];
+        const rankIndex = ranks.indexOf(currentRank);
+        const nextRank = ranks[rankIndex + 1];
+
         if (!nextRank) return interaction.followUp({ content: 'Operator is at max rank.', flags: [MessageFlags.Ephemeral] });
+        if (nextRank.appointed) return interaction.followUp({ content: 'This rank is an appointed position and cannot be reached via standard promotion.', flags: [MessageFlags.Ephemeral] });
  
         if (nextRank.name === 'Sergeant' && !stats.passedBCT) return interaction.followUp({ content: 'Ineligible: Operator has not passed BCT.', flags: [MessageFlags.Ephemeral] });
         if (stats.attended < nextRank.minAttended) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minAttended} completed ops.`, flags: [MessageFlags.Ephemeral] });
-        if (nextRank.minLed && (stats.ledOps || 0) < nextRank.minLed) return interaction.followUp({ content: `Ineligible: Needs to lead ${nextRank.minLed} ops (Current: ${stats.ledOps || 0}).`, flags: [MessageFlags.Ephemeral] });
-        if (nextRank.minRecruits && (stats.recruits || 0) < nextRank.minRecruits) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minRecruits} recruits (Current: ${stats.recruits || 0}).`, flags: [MessageFlags.Ephemeral] });
+
+        const ledOps = stats.ledOps || 0;
+        const recruits = stats.recruits || 0;
+        if (nextRank.minLed && ledOps < nextRank.minLed) return interaction.followUp({ content: `Ineligible: Needs to lead ${nextRank.minLed} ops (Current: ${ledOps}).`, flags: [MessageFlags.Ephemeral] });
+        if (nextRank.minRecruits && recruits < nextRank.minRecruits) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minRecruits} recruits (Current: ${recruits}).`, flags: [MessageFlags.Ephemeral] });
  
         const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === nextRank.name.toLowerCase());
         if (role) {
@@ -966,6 +1000,8 @@ client.on('interactionCreate', async (interaction) => {
           }
           await member.roles.add(role).catch(e => console.error(`Failed to add new rank role ${role.name}:`, e));
         }
+
+        await syncNickname(member, nextRank);
  
         try {
           await member.send(`🎖️ **ARCUS Promotion**: You have been promoted to **${nextRank.name}**! Service record updated.`);
@@ -979,11 +1015,8 @@ client.on('interactionCreate', async (interaction) => {
  
       await interaction.deferUpdate().catch(() => {});
  
-      const data = loadData();
       const op = getOpById(data, targetId);
-      if (!op) {
-        return interaction.followUp({ content: 'ARCUS: Operation not found or expired.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
-      }
+      if (!op) return interaction.followUp({ content: 'ARCUS: Operation not found or expired.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
       if (op.locked) {
         return interaction.followUp({ content: 'ARCUS: Operation is locked.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
       }
@@ -1120,7 +1153,6 @@ client.on('interactionCreate', async (interaction) => {
  
       if (parts[1] === 'roleselect') {
         const targetOpId = parts[2];
-        const data = loadData();
         const currentOp = getOpById(data, targetOpId);
         if (!currentOp || currentOp.locked) {
           return interaction.followUp({ content: 'ARCUS: Operation not found or locked.', flags: [MessageFlags.Ephemeral] });
@@ -1157,7 +1189,6 @@ client.on('interactionCreate', async (interaction) => {
  
       if (parts[1] === 'attendance') {
         const targetOpId = parts[2];
-        const data = loadData();
         const currentOp = getOpById(data, targetOpId);
         if (!currentOp) {
           return interaction.followUp({ content: 'ARCUS: Operation not found.', flags: [MessageFlags.Ephemeral] });
@@ -1253,7 +1284,6 @@ client.on('interactionCreate', async (interaction) => {
  
       if (parts[1] === 'modal' && parts[2] === 'aar') {
         const opId = parts[3];
-        const data = loadData();
         const op = getOpById(data, opId);
  
         if (!op) return interaction.reply({ content: 'ARCUS: Operation data lost.', flags: [MessageFlags.Ephemeral] });
@@ -1277,7 +1307,6 @@ client.on('interactionCreate', async (interaction) => {
         const pingRaw = interaction.fields.getTextInputValue('op_pings') || '';
         const reminderMins = parseInt(interaction.fields.getTextInputValue('op_reminder')) || 0;
  
-        const data = loadData();
         if (!channelId || channelId === 'undefined') return interaction.reply({ content: 'ARCUS: Invalid channel configuration.', flags: [MessageFlags.Ephemeral] });
  
         const channel = await client.channels.fetch(channelId);
@@ -1347,7 +1376,6 @@ client.on('interactionCreate', async (interaction) => {
  
       if (parts[1] === 'modal' && parts[2] === 'prof_edit') {
         const targetUserId = parts[3];
-        const data = loadData();
         const ustats = ensureUserStats(data, targetUserId);
  
         const getVal = (id) => {
