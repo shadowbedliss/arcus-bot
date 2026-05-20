@@ -293,16 +293,15 @@ function findUserSquad(op, userId) {
 function ensureUserStats(data, userId) {
   if (!data.users[userId]) {
     // Initialize with all expected fields
-    data.users[userId] = { joined: 0, attended: 0, xp: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0 };
-    data.users[userId] = { joined: 0, attended: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0 };
+    data.users[userId] = { joined: 0, attended: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0, councilNote: "" };
   }
   // Data migration for existing users
-  if (data.users[userId].xp === undefined) data.users[userId].xp = 0;
   if (data.users[userId].medals === undefined) data.users[userId].medals = [];
   if (data.users[userId].passedBCT === undefined) data.users[userId].passedBCT = false;
   if (data.users[userId].promotionNotes === undefined) data.users[userId].promotionNotes = "";
   if (data.users[userId].ledOps === undefined) data.users[userId].ledOps = 0;
   if (data.users[userId].recruits === undefined) data.users[userId].recruits = 0;
+  if (data.users[userId].councilNote === undefined) data.users[userId].councilNote = "";
   return data.users[userId];
 }
 
@@ -687,20 +686,14 @@ client.on('interactionCreate', async (interaction) => {
         const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null); // Fetch member for nickname and roles
         const stats = ensureUserStats(data, target.id); // Ensure full stats are loaded/migrated
         const currentRank = getRank(targetMember, stats); // Get rank using the helper
-        const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null);
-        const stats = ensureUserStats(data, target.id);
-        const currentRank = getRank(targetMember, stats);
-        const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null;
-        const opsToNextRank = nextRank ? `\`${Math.max(0, nextRank.minAttended - (stats.attended || 0))}\`` : 'N/A';
-        const opsToNextRank = nextRank && !nextRank.appointed ? `\`${Math.max(0, nextRank.minAttended - (stats.attended || 0))}\`` : 'N/A';
+        const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null; // Re-calculate nextRank for consistency
+        const opsToNextRank = nextRank && !nextRank.appointed ? `\`${Math.max(0, nextRank.minAttended - (stats.attended || 0))}\`` : 'N/A'; // Re-calculate opsToNextRank for consistency
 
         const embed = new EmbedBuilder()
-          .setTitle(`ARCUS Service Record: ${targetMember?.nickname || target.username}`) // Use nickname if available
           .setTitle(`ARCUS Service Record: ${targetMember?.nickname || target.username}`)
           .setThumbnail(target.displayAvatarURL())
           .addFields(
             { name: 'Rank', value: `**${currentRank.name}**`, inline: true }, // Display rank
-            { name: 'Rank', value: `**${currentRank.name}**`, inline: true },
             { name: 'Ops to Next Rank', value: opsToNextRank, inline: true }
           )
           .setColor(0x5865f2);
@@ -740,31 +733,16 @@ client.on('interactionCreate', async (interaction) => {
           }
         }
 
-        // Qualification Status: BCT only visible for Recruits
-        const bctLine = currentRank.name === 'Recruit' 
-          ? `BCT: ${stats.passedBCT ? '✅ Passed' : '❌ Pending'}\n` 
-          : '';
-        
-        // Council Assignment: Visible for Council rank and above
-        const councilRankIndex = ranks.findIndex(r => r.name === 'Council');
-        const currentRankIndex = ranks.indexOf(currentRank);
-        const isCouncilOrAbove = currentRankIndex >= councilRankIndex;
-
         const embed = new EmbedBuilder()
           .setTitle(`ARCUS Service Record: ${displayName}`)
           .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
           .addFields(
             { name: 'Rank', value: `**${currentRank.name}**`, inline: true },
             { name: 'Ops to Next Rank', value: opsToNextRank, inline: true },
+            { name: 'Personnel Stats', value: `Led: \`${stats.ledOps || 0}\`\nRecruits: \`${stats.recruits || 0}\``, inline: false },
             { name: 'Promotion Req.', value: progressText, inline: false },
-            { name: 'Qualification Status', value: `${bctLine}Notes: ${stats.promotionNotes || '_No notes record_'}`, inline: false }
+            { name: 'Qualification Status', value: `BCT: ${stats.passedBCT ? '✅ Passed' : '❌ Pending'}\nNotes: ${stats.promotionNotes || '_No notes record_'}`, inline: false }
           )
-
-        if (isCouncilOrAbove) {
-          embed.addFields({ name: 'Council Assignment', value: stats.councilNote || '_No specific assignment noted_', inline: false });
-        }
-
-        embed
           .setColor(0x5865f2)
           .setFooter({ text: 'Operational Excellence through Data Synchronization' })
           .setTimestamp();
@@ -791,7 +769,6 @@ client.on('interactionCreate', async (interaction) => {
           const user = await client.users.fetch(entry.id).catch(() => ({ username: 'Unknown Operator' }));
           const member = await interaction.guild.members.fetch(entry.id).catch(() => null); // Fetch GuildMember for nickname
           const finalName = member?.nickname || user.username; // Use nickname if available
-          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `\`[${i + 1}]\``;
           const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `\`${i + 1}.\``;
 
           const rank = getRank(member, entry.stats);
@@ -1393,6 +1370,7 @@ client.on('interactionCreate', async (interaction) => {
       const data = loadData();
       const ustats = ensureUserStats(data, targetUserId);
       const bctVal = interaction.fields.getTextInputValue('bct_status').toLowerCase();
+      const joinedOpsVal = parseInt(interaction.fields.getTextInputValue('joined_ops'));
       ustats.passedBCT = (bctVal === 'yes' || bctVal === 'true');
       
       const fields = [
@@ -1408,10 +1386,7 @@ client.on('interactionCreate', async (interaction) => {
       });
 
       ustats.promotionNotes = interaction.fields.getTextInputValue('prom_notes');
-      // Add council note to the editor modal fields if you want to edit it here
-      const cNote = interaction.fields.fields.get('council_note');
-      if (cNote) ustats.councilNote = cNote.value;
-
+      ustats.councilNote = interaction.fields.getTextInputValue('council_note'); // Save council note
       saveData(data);
       return interaction.reply({ content: `✅ Updated qualifications for <@${targetUserId}>.`, flags: [MessageFlags.Ephemeral] });
     } // Closing brace for the prof_edit modal handler
