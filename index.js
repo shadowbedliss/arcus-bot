@@ -1380,6 +1380,9 @@ client.on('interactionCreate', async (interaction) => {
         saveData(data);
         return interaction.reply({ content: `✅ Updated record for <@${targetUserId}>.`, flags: [MessageFlags.Ephemeral] });
       }
+    } // This brace closes the 'if (parts[1] === 'modal' && parts[2] === 'prof_edit')' block
+  } // This brace closes the 'else if (interaction.isModalSubmit())' block
+  catch (error) { // This correctly closes the main 'try' block
     }
   } catch (error) {
     console.error('ARCUS: Global Interaction Error:', error);
@@ -1387,6 +1390,7 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.reply({ content: 'ARCUS Internal Error: System failed to process interaction.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
     }
   }
+});
 }); // End of interactionCreate
 
 // --- Start Bot ---
