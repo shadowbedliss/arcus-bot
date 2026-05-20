@@ -149,23 +149,6 @@ const ranks = [ // Ranks are based on 'attended' (completed) operations
   { name: 'Captain', minAttended: 10, minLed: 3, minRecruits: 4 }
 ];
 
-function getRank(member, stats) {
-  let currentRank = null;
-  if (member) {
-    // Get all roles from cache, but also handle the possibility of raw IDs
-    const roleCache = member.roles.cache;
-    if (roleCache && roleCache.size > 0) {
-      const roleNames = roleCache.map(role => role.name.toLowerCase().trim());
-      // Check if any of our rank names match the user's roles
-      currentRank = [...ranks].reverse().find(r => roleNames.includes(r.name.toLowerCase().trim()));
-    }
-  }
-  if (!currentRank) {
-    currentRank = [...ranks].reverse().find(r => (stats.attended || 0) >= r.minAttended) || ranks[0];
-  }
-  return currentRank;
-}
-
 
 function formatSquadListing(op, guildId) {
   const lines = [];
@@ -293,9 +276,12 @@ function findUserSquad(op, userId) {
 
 function ensureUserStats(data, userId) {
   if (!data.users[userId]) {
+    // Initialize with all expected fields
     data.users[userId] = { joined: 0, attended: 0, xp: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0 };
   }
   // Data migration for existing users
+  if (data.users[userId].xp === undefined) data.users[userId].xp = 0;
+  if (data.users[userId].medals === undefined) data.users[userId].medals = [];
   if (data.users[userId].passedBCT === undefined) data.users[userId].passedBCT = false;
   if (data.users[userId].promotionNotes === undefined) data.users[userId].promotionNotes = "";
   // New data migration for ledOps
@@ -681,16 +667,16 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       if (interaction.options.getSubcommand() === 'stats') {
         const data = loadData();
         const target = interaction.options.getUser('target') || interaction.user;
-        const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null);
-        const stats = ensureUserStats(data, target.id);
+        const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null); // Fetch member for nickname and roles
+        const stats = ensureUserStats(data, target.id); // Ensure full stats are loaded/migrated
         const ratio = stats.joined > 0 ? Math.round((stats.attended / stats.joined) * 100) : 0;
-        const currentRank = getRank(targetMember, stats);
+        const currentRank = getRank(targetMember, stats); // Get rank using the helper
 
         const embed = new EmbedBuilder()
-          .setTitle(`ARCUS Service Record: ${targetMember?.nickname || target.username}`)
+          .setTitle(`ARCUS Service Record: ${targetMember?.nickname || target.username}`) // Use nickname if available
           .setThumbnail(target.displayAvatarURL())
           .addFields(
-            { name: 'Rank', value: `**${currentRank.name}**`, inline: true },
+            { name: 'Rank', value: `**${currentRank.name}**`, inline: true }, // Display rank
             { name: 'Operations Joined', value: stats.joined.toString(), inline: true },
             { name: 'Operations Attended', value: stats.attended.toString(), inline: true },
             { name: 'Attendance Rating', value: `${ratio}%`, inline: true }
@@ -711,7 +697,16 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
         const stats = ensureUserStats(data, targetUser.id);
         const ratio = stats.joined > 0 ? Math.round((stats.attended / stats.joined) * 100) : 0;
 
-        const currentRank = getRank(targetMember, stats);
+        let currentRank = null;
+        if (targetMember) {
+          currentRank = [...ranks].reverse().find(r => 
+            targetMember.roles.cache.some(role => role.name.toLowerCase() === r.name.toLowerCase())
+          );
+        }
+        if (!currentRank) {
+          currentRank = [...ranks].reverse().find(r => (stats.attended || 0) >= r.minAttended) || ranks[0];
+        }
+
         const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null;
         let progress = '\n*Max Rank Achieved*';
         if (nextRank) {
@@ -761,7 +756,16 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
           const member = await interaction.guild.members.fetch(entry.id).catch(() => null); // Fetch GuildMember for nickname
           const finalName = member?.nickname || user.username; // Use nickname if available
           const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `\`[${i + 1}]\``;
-          const rank = getRank(member, entry);
+          
+          let rank = null;
+          if (member) {
+            rank = [...ranks].reverse().find(r => 
+              member.roles.cache.some(role => role.name.toLowerCase() === r.name.toLowerCase())
+            );
+          }
+          if (!rank) {
+            rank = [...ranks].reverse().find(r => (entry.attended || 0) >= r.minAttended) || ranks[0];
+          }
 
           leaderboardText += `${medal} **${finalName}** — ${rank.name} (${entry.xp || 0} XP)\n`; // FIX: Use finalName and remove duplicate line
         }
@@ -1141,8 +1145,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       // ROLE CAPACITY CHECK
       const caps = { 'Medic': 1, 'Overwatch': 1, 'Demolitions': 1, 'Squad Lead': 1 };
       if (caps[selectedRole]) {
-        const count = squad.members.filter(m => m.role === selectedRole).length; // FIX: Count all members with the role
-        const count = squad.members.filter(m => m.role === selectedRole && m.userId !== interaction.user.id).length;
+        const count = squad.members.filter(m => m.role === selectedRole && m.userId !== interaction.user.id).length; // Count members with this role, excluding the current user if they are changing their own role
         if (count >= caps[selectedRole]) { // FIX: Ensure capacity check is correct
           return interaction.followUp({ content: `ARCUS: This squad already has a ${selectedRole}.`, flags: [MessageFlags.Ephemeral] }); // FIX: Use flags
         }
@@ -1247,7 +1250,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       if (isNaN(size) || size < 1 || size > 10) return interaction.reply({ content: 'Invalid squad size. Please choose a number between 1 and 10.', flags: [MessageFlags.Ephemeral] });
 
       // Validation: Ensure the default role exists in the selectable roles list
-      const available = guildConfig.selectableRoles; // FIX: Use guildConfig.selectableRoles directly
+      const available = guildConfig.selectableRoles; // Use guildConfig.selectableRoles directly
       if (!available.some(r => r.toLowerCase() === defRole.toLowerCase())) { // FIX: Ensure validation is correct
         return interaction.reply({ 
           content: `⚠️ **Warning**: "${defRole}" is not in your Tactical Role list. Please add it to the registry first or check your spelling.`, 
