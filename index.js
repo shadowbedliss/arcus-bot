@@ -142,11 +142,11 @@ function parseOpTime(timeStr) {
 const squadNames = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Gamma', 'Hotel', 'India'];
 
 // --- Rank Structure ---
-const ranks = [ // Ranks are based on 'attended' (completed) operations
-  { name: 'Recruit', minAttended: 0 },
-  { name: 'Sergeant', minAttended: 3, requireBCT: true },   
-  { name: 'Lieutenant', minAttended: 6, minRecruits: 2 },
-  { name: 'Captain', minAttended: 10, minLed: 3, minRecruits: 4 }
+const ranks = [ // Ranks are now based on 'joined' operations
+  { name: 'Recruit', minJoined: 0 },
+  { name: 'Sergeant', minJoined: 3 },   
+  { name: 'Lieutenant', minJoined: 6 },
+  { name: 'Captain', minJoined: 10 }
 ];
 
 
@@ -276,17 +276,11 @@ function findUserSquad(op, userId) {
 
 function ensureUserStats(data, userId) {
   if (!data.users[userId]) {
-    // Initialize with all expected fields
-    data.users[userId] = { joined: 0, attended: 0, xp: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0 };
+    data.users[userId] = { joined: 0, attended: 0, xp: 0, medals: [], passedBCT: false, promotionNotes: "" };
   }
   // Data migration for existing users
-  if (data.users[userId].xp === undefined) data.users[userId].xp = 0;
-  if (data.users[userId].medals === undefined) data.users[userId].medals = [];
   if (data.users[userId].passedBCT === undefined) data.users[userId].passedBCT = false;
   if (data.users[userId].promotionNotes === undefined) data.users[userId].promotionNotes = "";
-  // New data migration for ledOps
-  if (data.users[userId].ledOps === undefined) data.users[userId].ledOps = 0;
-  if (data.users[userId].recruits === undefined) data.users[userId].recruits = 0;
   return data.users[userId];
 }
 
@@ -697,27 +691,21 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
         const stats = ensureUserStats(data, targetUser.id);
         const ratio = stats.joined > 0 ? Math.round((stats.attended / stats.joined) * 100) : 0;
 
+        const currentRank = [...ranks].reverse().find(r => (stats.joined || 0) >= r.minJoined) || ranks[0];
+        // Rank Detection: Priority given to Discord roles, fallback to operation counts
         let currentRank = null;
         if (targetMember) {
           currentRank = [...ranks].reverse().find(r => 
             targetMember.roles.cache.some(role => role.name.toLowerCase() === r.name.toLowerCase())
           );
         }
-        if (!currentRank) {
-          currentRank = [...ranks].reverse().find(r => (stats.attended || 0) >= r.minAttended) || ranks[0];
-        }
 
-        const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null;
-        let progress = '\n*Max Rank Achieved*';
-        if (nextRank) {
-          const reqs = [];
-          const opsNeeded = Math.max(0, nextRank.minAttended - (stats.attended || 0));
-          if (opsNeeded > 0) reqs.push(`${opsNeeded} Ops`);
-          if (nextRank.requireBCT && !stats.passedBCT) reqs.push('BCT');
-          if (nextRank.minLed && (stats.ledOps || 0) < nextRank.minLed) reqs.push(`${nextRank.minLed - (stats.ledOps || 0)} Led Ops`);
-          if (nextRank.minRecruits && (stats.recruits || 0) < nextRank.minRecruits) reqs.push(`${nextRank.minRecruits - (stats.recruits || 0)} Recruits`);
-          progress = `\n*Next Promotion: ${nextRank.name} (${reqs.length > 0 ? reqs.join(', ') : 'Eligible'})*`;
+        if (!currentRank) {
+          currentRank = [...ranks].reverse().find(r => (stats.joined || 0) >= r.minJoined) || ranks[0];
         }
+        const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null;
+        const opsNeeded = nextRank ? Math.max(0, nextRank.minJoined - (stats.joined || 0)) : 0;
+        const progress = nextRank ? `\n*Next Promotion: ${nextRank.name} (${opsNeeded} more Joined Ops)*` : '\n*Max Rank Achieved*';
 
         const embed = new EmbedBuilder()
           .setTitle(`ARCUS Service Record: ${displayName}`)
@@ -764,7 +752,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
             );
           }
           if (!rank) {
-            rank = [...ranks].reverse().find(r => (entry.attended || 0) >= r.minAttended) || ranks[0];
+            rank = [...ranks].reverse().find(r => (entry.joined || 0) >= r.minJoined) || ranks[0];
           }
 
           leaderboardText += `${medal} **${finalName}** — ${rank.name} (${entry.xp || 0} XP)\n`; // FIX: Use finalName and remove duplicate line
@@ -937,10 +925,6 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       const modal = new ModalBuilder().setCustomId(`op:modal:prof_edit:${targetId}`).setTitle('Edit Operator Qualifications');
       modal.addComponents(
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('bct_status').setLabel('BCT Passed? (yes/no)').setStyle(TextInputStyle.Short).setValue(ustats.passedBCT ? 'yes' : 'no')),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('joined_ops').setLabel('Joined Ops Count').setStyle(TextInputStyle.Short).setValue((ustats.joined || 0).toString())),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('attended_ops').setLabel('Attended Ops Count').setStyle(TextInputStyle.Short).setValue((ustats.attended || 0).toString())),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('led_ops').setLabel('Led Ops Count').setStyle(TextInputStyle.Short).setValue((ustats.ledOps || 0).toString())),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('recruit_count').setLabel('Recruits Brought In').setStyle(TextInputStyle.Short).setValue((ustats.recruits || 0).toString())),
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('prom_notes').setLabel('Promotion Notes / Requirements').setStyle(TextInputStyle.Paragraph).setRequired(false).setValue(ustats.promotionNotes || ''))
       );
       return interaction.showModal(modal);
@@ -955,15 +939,13 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       if (!member) return interaction.followUp({ content: 'Operator no longer in server.', flags: [MessageFlags.Ephemeral] });
 
       let currentRank = [...ranks].reverse().find(r => member.roles.cache.some(role => role.name.toLowerCase() === r.name.toLowerCase()));
-      if (!currentRank) currentRank = [...ranks].reverse().find(r => (stats.attended || 0) >= r.minAttended) || ranks[0];
+      if (!currentRank) currentRank = [...ranks].reverse().find(r => (stats.joined || 0) >= r.minJoined) || ranks[0];
 
       const nextRank = ranks[ranks.indexOf(currentRank) + 1];
       if (!nextRank) return interaction.followUp({ content: 'Operator is at max rank.', flags: [MessageFlags.Ephemeral] });
 
-      if (stats.attended < nextRank.minAttended) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minAttended} completed ops.`, flags: [MessageFlags.Ephemeral] });
-      if (nextRank.requireBCT && !stats.passedBCT) return interaction.followUp({ content: 'Ineligible: Operator has not passed BCT.', flags: [MessageFlags.Ephemeral] });
-      if (nextRank.minLed && (stats.ledOps || 0) < nextRank.minLed) return interaction.followUp({ content: `Ineligible: Needs to lead ${nextRank.minLed} ops (Current: ${stats.ledOps || 0}).`, flags: [MessageFlags.Ephemeral] });
-      if (nextRank.minRecruits && (stats.recruits || 0) < nextRank.minRecruits) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minRecruits} recruits (Current: ${stats.recruits || 0}).`, flags: [MessageFlags.Ephemeral] });
+      if (stats.joined < nextRank.minJoined) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minJoined} ops.`, flags: [MessageFlags.Ephemeral] });
+      if (nextRank.name === 'Sergeant' && !stats.passedBCT) return interaction.followUp({ content: 'Ineligible: Operator has not passed BCT.', flags: [MessageFlags.Ephemeral] });
 
       const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === nextRank.name.toLowerCase());
       if (role) {
@@ -1145,7 +1127,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       // ROLE CAPACITY CHECK
       const caps = { 'Medic': 1, 'Overwatch': 1, 'Demolitions': 1, 'Squad Lead': 1 };
       if (caps[selectedRole]) {
-        const count = squad.members.filter(m => m.role === selectedRole && m.userId !== interaction.user.id).length; // Count members with this role, excluding the current user if they are changing their own role
+        const count = squad.members.filter(m => m.role === selectedRole).length; // FIX: Count all members with the role
         if (count >= caps[selectedRole]) { // FIX: Ensure capacity check is correct
           return interaction.followUp({ content: `ARCUS: This squad already has a ${selectedRole}.`, flags: [MessageFlags.Ephemeral] }); // FIX: Use flags
         }
@@ -1250,7 +1232,7 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       if (isNaN(size) || size < 1 || size > 10) return interaction.reply({ content: 'Invalid squad size. Please choose a number between 1 and 10.', flags: [MessageFlags.Ephemeral] });
 
       // Validation: Ensure the default role exists in the selectable roles list
-      const available = guildConfig.selectableRoles; // Use guildConfig.selectableRoles directly
+      const available = guildConfig.selectableRoles; // FIX: Use guildConfig.selectableRoles directly
       if (!available.some(r => r.toLowerCase() === defRole.toLowerCase())) { // FIX: Ensure validation is correct
         return interaction.reply({ 
           content: `⚠️ **Warning**: "${defRole}" is not in your Tactical Role list. Please add it to the registry first or check your spelling.`, 
@@ -1278,29 +1260,6 @@ client.on('interactionCreate', async (interaction) => { // FIX: Corrected async 
       await updateOperationMessage(client, op);
 
       return interaction.reply({ content: `✅ **AAR Filed for Op ${op.name}**. The operation board has been updated.` });
-    }
-
-    if (parts[1] === 'modal' && parts[2] === 'prof_edit') {
-      const targetUserId = parts[3];
-      const data = loadData();
-      const ustats = ensureUserStats(data, targetUserId);
-      
-      const bctVal = interaction.fields.getTextInputValue('bct_status').toLowerCase();
-      const joinedOpsVal = parseInt(interaction.fields.getTextInputValue('joined_ops'));
-      const attendedOpsVal = parseInt(interaction.fields.getTextInputValue('attended_ops'));
-      const ledOpsVal = parseInt(interaction.fields.getTextInputValue('led_ops'));
-      const recruitsVal = parseInt(interaction.fields.getTextInputValue('recruit_count'));
-      const notesVal = interaction.fields.getTextInputValue('prom_notes');
-
-      ustats.passedBCT = (bctVal === 'yes' || bctVal === 'true');
-      if (!isNaN(joinedOpsVal)) ustats.joined = joinedOpsVal;
-      if (!isNaN(attendedOpsVal)) ustats.attended = attendedOpsVal;
-      if (!isNaN(ledOpsVal)) ustats.ledOps = ledOpsVal;
-      if (!isNaN(recruitsVal)) ustats.recruits = recruitsVal;
-      ustats.promotionNotes = notesVal;
-
-      saveData(data);
-      return interaction.reply({ content: `✅ Updated qualifications for <@${targetUserId}>.`, flags: [MessageFlags.Ephemeral] });
     }
 
     if (parts[1] === 'modal' && parts[2] === 'submit') {
