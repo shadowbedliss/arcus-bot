@@ -146,7 +146,11 @@ const ranks = [
   { name: 'Recruit', minAttended: 0 },
   { name: 'Sergeant', minAttended: 3, requireBCT: true },
   { name: 'Lieutenant', minAttended: 6, minRecruits: 2 },
-  { name: 'Captain', minAttended: 10, minLed: 3, minRecruits: 4 }
+  { name: 'Captain', minAttended: 10, minLed: 3, minRecruits: 4 },
+  { name: 'Council', minAttended: 0, appointed: true }, // This now encompasses all Council members (Officers, Rotating Seats)
+  { name: 'Council Chief', minAttended: 0, appointed: true },
+  { name: 'Deputy Commander', minAttended: 0, appointed: true },
+  { name: 'Commander', minAttended: 0, appointed: true }
 ];
 
 function getRank(member, stats) {
@@ -290,6 +294,7 @@ function ensureUserStats(data, userId) {
   if (!data.users[userId]) {
     // Initialize with all expected fields
     data.users[userId] = { joined: 0, attended: 0, xp: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0 };
+    data.users[userId] = { joined: 0, attended: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0 };
   }
   // Data migration for existing users
   if (data.users[userId].xp === undefined) data.users[userId].xp = 0;
@@ -681,18 +686,24 @@ client.on('interactionCreate', async (interaction) => {
         const target = interaction.options.getUser('target') || interaction.user;
         const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null); // Fetch member for nickname and roles
         const stats = ensureUserStats(data, target.id); // Ensure full stats are loaded/migrated
-        const ratio = stats.joined > 0 ? Math.round((stats.attended / stats.joined) * 100) : 0;
         const currentRank = getRank(targetMember, stats); // Get rank using the helper
+        const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null);
+        const stats = ensureUserStats(data, target.id);
+        const currentRank = getRank(targetMember, stats);
+        const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null;
+        const opsToNextRank = nextRank ? `\`${Math.max(0, nextRank.minAttended - (stats.attended || 0))}\`` : 'N/A';
+        const opsToNextRank = nextRank && !nextRank.appointed ? `\`${Math.max(0, nextRank.minAttended - (stats.attended || 0))}\`` : 'N/A';
 
         const embed = new EmbedBuilder()
           .setTitle(`ARCUS Service Record: ${targetMember?.nickname || target.username}`) // Use nickname if available
+          .setTitle(`ARCUS Service Record: ${targetMember?.nickname || target.username}`)
           .setThumbnail(target.displayAvatarURL())
           .addFields(
             { name: 'Rank', value: `**${currentRank.name}**`, inline: true }, // Display rank
-            { name: 'Total Deployments', value: stats.joined.toString(), inline: true },
-            { name: 'Attendance Rating', value: `\`${ratio}%\``, inline: true }
+            { name: 'Rank', value: `**${currentRank.name}**`, inline: true },
+            { name: 'Ops to Next Rank', value: opsToNextRank, inline: true }
           )
-          .setColor(ratio > 75 ? 0x00FF00 : ratio > 50 ? 0xFFFF00 : 0xFF0000);
+          .setColor(0x5865f2);
 
         return interaction.reply({ embeds: [embed] });
       }
@@ -706,22 +717,27 @@ client.on('interactionCreate', async (interaction) => {
         const displayName = targetMember?.nickname || targetUser.displayName || targetUser.username;
         
         const stats = ensureUserStats(data, targetUser.id);
-        const ratio = stats.joined > 0 ? Math.round((stats.attended / stats.joined) * 100) : 0;
         const currentRank = getRank(targetMember, stats);
         const nextRank = ranks[ranks.indexOf(currentRank) + 1] || null;
         let progressText = '*Max Rank Achieved*';
         let opsToNextRank = 'N/A';
 
         if (nextRank) {
-          const reqs = [];
-          const opsNeeded = Math.max(0, nextRank.minAttended - (stats.attended || 0));
-          opsToNextRank = `\`${opsNeeded}\``;
-          
-          if (opsNeeded > 0) reqs.push(`${opsNeeded} Ops`);
-          if (nextRank.requireBCT && !stats.passedBCT) reqs.push('BCT');
-          if (nextRank.minLed && (stats.ledOps || 0) < nextRank.minLed) reqs.push(`${nextRank.minLed - (stats.ledOps || 0)} Led Ops`);
-          if (nextRank.minRecruits && (stats.recruits || 0) < nextRank.minRecruits) reqs.push(`${nextRank.minRecruits - (stats.recruits || 0)} Recruits`);
-          progressText = `*Next Promotion: ${nextRank.name} (${reqs.length > 0 ? reqs.join(', ') : 'Eligible'})*`;
+          if (nextRank.appointed) {
+            progressText = `*Next Promotion: ${nextRank.name} (Appointed Position)*`;
+            opsToNextRank = 'N/A';
+          } else {
+            const reqs = [];
+            const opsNeeded = Math.max(0, nextRank.minAttended - (stats.attended || 0));
+            opsToNextRank = `\`${opsNeeded}\``;
+            
+            if (opsNeeded > 0) reqs.push(`${opsNeeded} Ops`);
+            if (nextRank.requireBCT && !stats.passedBCT) reqs.push('BCT');
+            if (nextRank.minLed && (stats.ledOps || 0) < nextRank.minLed) reqs.push(`${nextRank.minLed - (stats.ledOps || 0)} Led Ops`);
+            if (nextRank.minRecruits && (stats.recruits || 0) < nextRank.minRecruits) reqs.push(`${nextRank.minRecruits - (stats.recruits || 0)} Recruits`);
+            
+            progressText = `*Next Promotion: ${nextRank.name} (${reqs.length > 0 ? reqs.join(', ') : 'Eligible'})*`;
+          }
         }
 
         const embed = new EmbedBuilder()
@@ -730,12 +746,11 @@ client.on('interactionCreate', async (interaction) => {
           .addFields(
             { name: 'Rank', value: `**${currentRank.name}**`, inline: true },
             { name: 'Ops to Next Rank', value: opsToNextRank, inline: true },
-            { name: 'Deployment Status', value: `Joined: \`${stats.joined}\`\nEfficiency: \`${ratio}%\``, inline: true },
-            { name: 'Personnel Stats', value: `Led: \`${stats.ledOps || 0}\`\nRecruits: \`${stats.recruits || 0}\``, inline: true },
+            { name: 'Personnel Stats', value: `Led: \`${stats.ledOps || 0}\`\nRecruits: \`${stats.recruits || 0}\``, inline: false },
             { name: 'Promotion Req.', value: progressText, inline: false },
             { name: 'Qualification Status', value: `BCT: ${stats.passedBCT ? '✅ Passed' : '❌ Pending'}\nNotes: ${stats.promotionNotes || '_No notes record_'}`, inline: false }
           )
-          .setColor(ratio > 75 ? 0x00FF00 : ratio > 50 ? 0xFFFF00 : 0xED4245)
+          .setColor(0x5865f2)
           .setFooter({ text: 'Operational Excellence through Data Synchronization' })
           .setTimestamp();
 
@@ -751,8 +766,9 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const topOperators = userEntries
-          .map(([id, rawStats]) => ({ id, stats: rawStats, ratio: (rawStats.joined > 0 ? (rawStats.attended / rawStats.joined) : 0) }))
-          .sort((a, b) => b.stats.attended - a.stats.attended || b.ratio - a.ratio)
+          .map(([id, rawStats]) => ({ id, stats: rawStats }))
+          .map(([id, rawStats]) => ({ id, stats: rawStats, attended: rawStats.attended || 0 })) // Ensure 'attended' is present for sorting
+          .sort((a, b) => b.stats.attended - a.stats.attended)
           .slice(0, 10);
 
         let leaderboardText = '';
@@ -762,10 +778,11 @@ client.on('interactionCreate', async (interaction) => {
           const member = await interaction.guild.members.fetch(entry.id).catch(() => null); // Fetch GuildMember for nickname
           const finalName = member?.nickname || user.username; // Use nickname if available
           const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `\`[${i + 1}]\``;
+          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `\`${i + 1}.\``;
 
           const rank = getRank(member, entry.stats);
 
-          leaderboardText += `${medal} **${finalName}** — ${rank.name} (${entry.stats.attended} Ops)\n`;
+          leaderboardText += `${medal} **${finalName}** — ${rank.name}\n`;
         }
 
         const embed = new EmbedBuilder()
