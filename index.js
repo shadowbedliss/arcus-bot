@@ -1,4 +1,4 @@
-﻿// ARCUS: Operations Management Bot - Full Stable Rework
+// ARCUS: Operations Management Bot - Full Stable Rework
 require('dotenv').config();
 const {
   Client,
@@ -195,7 +195,7 @@ function buildOperationEmbed(op) {
   }
 
   embed.addFields({ name: 'Squads', value: formatSquadListing(op, op.guildId) });
-  
+
   if (op.mapUrl) embed.setImage(op.mapUrl);
 
   return embed.setFooter({ text: `Tactical ID: ${op.id} | Creator: ${op.creatorTag}` });
@@ -288,11 +288,14 @@ function findUserSquad(op, userId) {
   return op.squads.find(s => s.members.some(m => m.userId === userId));
 }
 
+// FIX 1: ensureUserStats now guards ALL fields including joined and attended
 function ensureUserStats(data, userId) {
   if (!data.users[userId]) {
     data.users[userId] = { joined: 0, attended: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0, councilNote: "" };
   }
   const u = data.users[userId];
+  if (u.joined === undefined) u.joined = 0;
+  if (u.attended === undefined) u.attended = 0;
   if (u.medals === undefined) u.medals = [];
   if (u.passedBCT === undefined) u.passedBCT = false;
   if (u.promotionNotes === undefined) u.promotionNotes = "";
@@ -1001,6 +1004,7 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       if (namespace === 'op' && action === 'aar_trigger') {
+        const data = loadData();
         const op = getOpById(data, targetId);
         if (!op) return interaction.reply({ content: 'ARCUS: Operation not found.', flags: [MessageFlags.Ephemeral] });
 
@@ -1011,7 +1015,6 @@ client.on('interactionCreate', async (interaction) => {
         );
         return await interaction.showModal(modal);
       }
-
 
       // Operation action buttons (join/leave/role/squad)
       if (namespace !== 'op') return;
@@ -1296,6 +1299,8 @@ client.on('interactionCreate', async (interaction) => {
         const name = interaction.fields.getTextInputValue('op_name');
         const time = interaction.fields.getTextInputValue('op_time');
         const description = interaction.fields.getTextInputValue('op_description');
+        // FIX 3: pingRaw was previously undefined — now correctly read from modal fields
+        const pingRaw = interaction.fields.getTextInputValue('op_pings') || '';
         const customRolesRaw = interaction.fields.getTextInputValue('op_roles') || '';
         const mapUrl = interaction.fields.getTextInputValue('op_map') || null;
 
@@ -1385,6 +1390,7 @@ client.on('interactionCreate', async (interaction) => {
         const bctVal = getVal('bct_status');
         if (bctVal !== null) ustats.passedBCT = (bctVal.toLowerCase() === 'yes' || bctVal.toLowerCase() === 'true');
 
+        // FIX 2: Use Math.max to prevent stale pre-fills from reducing real counts
         const fields = [
           { id: 'attended_ops', prop: 'attended' },
           { id: 'led_ops', prop: 'ledOps' },
@@ -1394,7 +1400,7 @@ client.on('interactionCreate', async (interaction) => {
           const val = getVal(f.id);
           if (val !== null) {
             const num = parseInt(val);
-            if (!isNaN(num)) ustats[f.prop] = num;
+            if (!isNaN(num)) ustats[f.prop] = Math.max(ustats[f.prop] || 0, num);
           }
         });
 
@@ -1403,7 +1409,7 @@ client.on('interactionCreate', async (interaction) => {
         const cNote = getVal('council_note');
         if (cNote !== null) ustats.councilNote = cNote;
 
-       saveData(data);
+        saveData(data);
         return interaction.reply({
           content: `✅ Updated record for <@${targetUserId}>.`,
           flags: [MessageFlags.Ephemeral]
