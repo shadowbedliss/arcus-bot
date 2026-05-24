@@ -176,11 +176,14 @@ function formatSquadListing(op, guildId) {
 }
 
 function buildOperationEmbed(op) {
+  const startTime = parseOpTime(op.time);
+  const timeDisplay = isNaN(startTime) ? op.time : `<t:${Math.floor(startTime / 1000)}:F> (<t:${Math.floor(startTime / 1000)}:R>)`;
+
   const embed = new EmbedBuilder()
     .setTitle(`ARCUS: Operation ${op.name}`)
     .setDescription(`Status: ${op.locked ? 'Locked' : 'Active'}`)
     .addFields(
-      { name: 'Time', value: op.time || 'N/A', inline: true },
+      { name: '⏱️ Operational Time', value: timeDisplay, inline: false },
       { name: 'Briefing', value: op.description || 'N/A' }
     );
 
@@ -192,7 +195,10 @@ function buildOperationEmbed(op) {
   }
 
   embed.addFields({ name: 'Squads', value: formatSquadListing(op, op.guildId) });
-  return embed.setFooter({ text: `ID: ${op.id} | Creator: ${op.creatorTag}` });
+  
+  if (op.mapUrl) embed.setImage(op.mapUrl);
+
+  return embed.setFooter({ text: `Tactical ID: ${op.id} | Creator: ${op.creatorTag}` });
 }
 
 function canCreateEvent(member, guildId) {
@@ -522,8 +528,11 @@ client.on('interactionCreate', async (interaction) => {
               .setMinValues(0)
               .setMaxValues(options.length)
               .addOptions(options);
-            const row = new ActionRowBuilder().addComponents(attendanceMenu);
-            await dm.send({ content: 'ARCUS: Mark who attended.', components: [row] });
+            const row1 = new ActionRowBuilder().addComponents(attendanceMenu);
+            const row2 = new ActionRowBuilder().addComponents(
+              new ButtonBuilder().setCustomId(`op:aar_trigger:${opId}`).setLabel('📝 File AAR Report').setStyle(ButtonStyle.Primary)
+            );
+            await dm.send({ content: 'ARCUS: Operation ended. Please mark attendance and file the AAR.', components: [row1, row2] });
           }
           return interaction.reply({ content: 'ARCUS: Operation locked and attendance DM sent to creator.', flags: [MessageFlags.Ephemeral] });
         } catch (err) {
@@ -923,6 +932,7 @@ client.on('interactionCreate', async (interaction) => {
         try {
           const guildId = parts[2] || interaction.guildId;
           const sourceChannelId = parts[3];
+          const guildConfig = getGuildConfig(guildId);
 
           const modal = new ModalBuilder()
             .setCustomId(`op:modal:submit:${guildId}:${sourceChannelId}`)
@@ -933,7 +943,7 @@ client.on('interactionCreate', async (interaction) => {
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_time').setLabel("Start Time").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Friday 20:00 UTC')),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_description').setLabel("Briefing / Objective").setStyle(TextInputStyle.Paragraph).setRequired(true)),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_pings').setLabel("Roles to Ping (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. Admin, Moderator')),
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_reminder').setLabel("Reminder Offset (Minutes)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. 30'))
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_roles').setLabel("Custom Roles (Optional, comma-separated)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder(`Defaults: ${guildConfig.selectableRoles.join(', ')}`))
           );
           return interaction.showModal(modal);
         } catch (e) {
@@ -990,6 +1000,19 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.followUp({ content: `✅ Operator <@${targetId}> promoted to **${nextRank.name}**.` });
       }
 
+      if (namespace === 'op' && action === 'aar_trigger') {
+        const op = getOpById(data, targetId);
+        if (!op) return interaction.reply({ content: 'ARCUS: Operation not found.', flags: [MessageFlags.Ephemeral] });
+
+        const modal = new ModalBuilder().setCustomId(`op:modal:aar:${targetId}`).setTitle(`AAR: ${op.name}`);
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('aar_phases').setLabel("What happened (Phases / Timeline)").setStyle(TextInputStyle.Paragraph).setRequired(true).setPlaceholder('e.g. Phase 1: Infiltration successful...')),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('aar_performance').setLabel("Personnel Evaluation / Performance").setStyle(TextInputStyle.Paragraph).setRequired(false).setPlaceholder('e.g. Medic handled mass casualty incident perfectly...'))
+        );
+        return await interaction.showModal(modal);
+      }
+
+
       // Operation action buttons (join/leave/role/squad)
       if (namespace !== 'op') return;
 
@@ -1043,7 +1066,7 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       if (action === 'role') {
-        const selectable = guildConfig.selectableRoles || ["Point Man", "Overwatch", "Medic", "Demolitions"];
+        const selectable = (op.selectableRoles && op.selectableRoles.length > 0) ? op.selectableRoles : (guildConfig.selectableRoles || ["Point Man", "Overwatch", "Medic", "Demolitions"]);
         const options = selectable.map(role => ({ label: role, value: role }));
         const select = new StringSelectMenuBuilder()
           .setCustomId(`op:roleselect:${targetId}`)
@@ -1115,7 +1138,7 @@ client.on('interactionCreate', async (interaction) => {
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_time').setLabel("Start Time").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Friday 20:00 UTC')),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_description').setLabel("Briefing / Objective").setStyle(TextInputStyle.Paragraph).setValue(template.description)),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_pings').setLabel("Roles to Ping (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setValue(template.pings || '')),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_reminder').setLabel("Reminder Offset (Minutes)").setStyle(TextInputStyle.Short).setRequired(false).setValue((template.reminder || 30).toString()))
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_roles').setLabel("Custom Tactical Roles").setStyle(TextInputStyle.Short).setRequired(false))
         );
         return interaction.showModal(modal);
       }
@@ -1273,8 +1296,8 @@ client.on('interactionCreate', async (interaction) => {
         const name = interaction.fields.getTextInputValue('op_name');
         const time = interaction.fields.getTextInputValue('op_time');
         const description = interaction.fields.getTextInputValue('op_description');
-        const pingRaw = interaction.fields.getTextInputValue('op_pings') || '';
-        const reminderMins = parseInt(interaction.fields.getTextInputValue('op_reminder')) || 0;
+        const customRolesRaw = interaction.fields.getTextInputValue('op_roles') || '';
+        const mapUrl = interaction.fields.getTextInputValue('op_map') || null;
 
         if (!channelId || channelId === 'undefined') {
           return interaction.reply({ content: 'ARCUS: Invalid channel configuration.', flags: [MessageFlags.Ephemeral] });
@@ -1286,6 +1309,8 @@ client.on('interactionCreate', async (interaction) => {
           return interaction.reply({ content: 'ARCUS: Target channel no longer exists.', flags: [MessageFlags.Ephemeral] });
         }
         const guild = channel.guild;
+
+        const customRoles = customRolesRaw ? customRolesRaw.split(',').map(r => r.trim()).filter(r => r.length > 0) : null;
 
         let pingString = '';
         if (pingRaw) {
@@ -1320,7 +1345,7 @@ client.on('interactionCreate', async (interaction) => {
           }
         }
 
-        const opId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const opId = Math.random().toString(36).substring(2, 8).toUpperCase();
         const op = {
           id: opId,
           channelId,
@@ -1332,9 +1357,10 @@ client.on('interactionCreate', async (interaction) => {
           time,
           description,
           scheduledEventId,
-          reminderMinutes: reminderMins,
+          reminderMinutes: 30,
           reminderSent: false,
           locked: false,
+          selectableRoles: customRoles,
           squads: [{ name: 'Alpha', members: [] }],
           participants: [],
           attendance: {}
