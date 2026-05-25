@@ -137,6 +137,15 @@ function parseOpTime(timeStr) {
 
 const squadNames = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Gamma', 'Hotel', 'India'];
 
+// --- FIX: Safe unique op ID generation ---
+function generateOpId(data) {
+  let id;
+  do {
+    id = Math.random().toString(36).substring(2, 8).toUpperCase().padEnd(6, '0');
+  } while (data.operations[id]);
+  return id;
+}
+
 // --- Rank Structure ---
 const ranks = [
   { name: 'Recruit', minAttended: 0 },
@@ -196,6 +205,7 @@ function buildOperationEmbed(op) {
 
   embed.addFields({ name: 'Squads', value: formatSquadListing(op, op.guildId) });
 
+  // FIX: mapUrl now actually gets set from modal, so this will render
   if (op.mapUrl) embed.setImage(op.mapUrl);
 
   return embed.setFooter({ text: `Tactical ID: ${op.id} | Creator: ${op.creatorTag}` });
@@ -288,7 +298,6 @@ function findUserSquad(op, userId) {
   return op.squads.find(s => s.members.some(m => m.userId === userId));
 }
 
-// FIX 1: ensureUserStats now guards ALL fields including joined and attended
 function ensureUserStats(data, userId) {
   if (!data.users[userId]) {
     data.users[userId] = { joined: 0, attended: 0, medals: [], passedBCT: false, promotionNotes: "", ledOps: 0, recruits: 0, councilNote: "" };
@@ -331,88 +340,6 @@ const client = new Client({
 client.once(Events.ClientReady, async () => {
   console.log(`ARCUS ready: ${client.user.tag}`);
   client.user.setActivity('Operational Logs', { type: ActivityType.Watching });
-
-  const rest = new REST({ version: '10' }).setToken(TOKEN);
-  const commandData = new SlashCommandBuilder()
-    .setName('op')
-    .setDescription('ARCUS operation commands')
-    .addSubcommand(sub =>
-      sub.setName('create')
-        .setDescription('Start the operation creation process in DMs'))
-    .addSubcommand(sub =>
-      sub.setName('end')
-        .setDescription('End an operation')
-        .addStringOption(opt => opt.setName('id').setDescription('Operation ID').setRequired(true)))
-    .addSubcommand(sub =>
-      sub.setName('delete')
-        .setDescription('Admin: Delete an operation and clean up messages')
-        .addStringOption(opt => opt.setName('id').setDescription('Operation ID').setRequired(true)))
-    .addSubcommandGroup(group =>
-      group.setName('admin')
-        .setDescription('Manage Admin roles')
-        .addSubcommand(sub => sub.setName('grant').setDescription('Add a role to Admin list').addRoleOption(o => o.setName('role').setDescription('The role to grant admin privileges').setRequired(true)))
-        .addSubcommand(sub => sub.setName('revoke').setDescription('Remove a role from Admin list').addRoleOption(o => o.setName('role').setDescription('The role to revoke admin privileges').setRequired(true))))
-    .addSubcommandGroup(group =>
-      group.setName('creator')
-        .setDescription('Manage Creator roles')
-        .addSubcommand(sub => sub.setName('grant').setDescription('Add a role to Creator list').addRoleOption(o => o.setName('role').setDescription('The role to allow operation creation').setRequired(true)))
-        .addSubcommand(sub => sub.setName('revoke').setDescription('Remove a role from Creator list').addRoleOption(o => o.setName('role').setDescription('The role to disallow operation creation').setRequired(true))))
-    .addSubcommandGroup(group =>
-      group.setName('tactical')
-        .setDescription('Manage Tactical roles')
-        .addSubcommand(sub => sub.setName('add').setDescription('Add a role to selection list').addStringOption(o => o.setName('name').setDescription('The tactical role name').setRequired(true)))
-        .addSubcommand(sub => sub.setName('remove').setDescription('Remove a role from selection list').addStringOption(o => o.setName('name').setDescription('The tactical role name').setRequired(true)))
-        .addSubcommand(sub => sub.setName('list').setDescription('List all selectable tactical roles')))
-    .addSubcommandGroup(group =>
-      group.setName('template')
-        .setDescription('Manage Mission templates')
-        .addSubcommand(sub => sub.setName('add').setDescription('Create a new mission template'))
-        .addSubcommand(sub => sub.setName('remove').setDescription('Delete a template by index').addIntegerOption(o => o.setName('index').setDescription('The template index').setRequired(true)))
-        .addSubcommand(sub => sub.setName('list').setDescription('List all saved templates')))
-    .addSubcommand(sub =>
-      sub.setName('set_channel')
-        .setDescription('Set the default channel for operations')
-        .addChannelOption(opt => opt.setName('channel').setDescription('The channel to post operations in').setRequired(true)))
-    .addSubcommand(sub =>
-      sub.setName('stats')
-        .setDescription('View your operation participation statistics')
-        .addUserOption(opt => opt.setName('target').setDescription('The user to view stats for').setRequired(false)))
-    .addSubcommand(sub =>
-      sub.setName('settings')
-        .setDescription('Configure ARCUS settings for this server'))
-    .addSubcommand(sub =>
-      sub.setName('aar')
-        .setDescription('Add an After Action Report to an operation')
-        .addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true))
-        .addStringOption(o => o.setName('report').setDescription('The mission summary').setRequired(true)))
-    .addSubcommand(sub =>
-      sub.setName('profile')
-        .setDescription('View your detailed operational service record')
-        .addUserOption(opt => opt.setName('target').setDescription('The user to view').setRequired(false)))
-    .addSubcommand(sub =>
-      sub.setName('leaderboard')
-        .setDescription('View the top performing operators in the system'))
-    .addSubcommand(sub =>
-      sub.setName('clear_stats')
-        .setDescription('Admin: Permanently wipe all attendance statistics'));
-
-  const commands = [commandData.toJSON()];
-
-  try {
-    const guilds = client.guilds.cache.map(g => g.id);
-    if (guilds.length === 0) {
-      console.warn(`ARCUS Warning: Bot is not in any guilds. Command sync skipped.`);
-      return;
-    }
-    for (const gId of guilds) {
-      console.log(`ARCUS: Syncing commands for Guild: ${gId}`);
-      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gId), { body: commands })
-        .catch(err => console.error(`Command Sync Failed for ${gId}:`, err));
-    }
-    console.log('ARCUS: All guild commands synchronized.');
-  } catch (error) {
-    console.error('Failed registering commands:', error);
-  }
 
   // Reminder background task
   setInterval(async () => {
@@ -647,13 +574,14 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
+      // FIX: AAR via slash command now opens modal directly, ignoring the unused 'report' text option
       if (subcommand === 'aar') {
         const opId = interaction.options.getString('id');
         const op = getOpById(data, opId);
 
         if (!op) return interaction.reply({ content: 'ARCUS: Operation not found.', flags: [MessageFlags.Ephemeral] });
-        if (interaction.user.id !== op.creatorId && !interaction.member.permissions.has('Administrator')) {
-          return interaction.reply({ content: 'ARCUS: Only the creator or admins can file an AAR.', flags: [MessageFlags.Ephemeral] });
+        if (interaction.user.id !== op.creatorId && !isAuthorized(interaction.member, interaction.guildId)) {
+          return interaction.reply({ content: 'ARCUS: Only the creator or authorized staff can file an AAR.', flags: [MessageFlags.Ephemeral] });
         }
 
         const modal = new ModalBuilder().setCustomId(`op:modal:aar:${opId}`).setTitle(`AAR: ${op.name}`);
@@ -709,7 +637,7 @@ client.on('interactionCreate', async (interaction) => {
 
         if (nextRank) {
           if (nextRank.appointed) {
-            progressText = `*Next Promotion: ${nextRank.name} (Appointed Position)*`;
+            progressText = `*Next Promotion: ${nextRank.name} (Appointed Position — contact command)*`;
           } else {
             const reqs = [];
             const opsNeeded = Math.max(0, nextRank.minAttended - (stats.attended || 0));
@@ -731,7 +659,7 @@ client.on('interactionCreate', async (interaction) => {
           .addFields(
             { name: 'Rank', value: `**${currentRank.name}**`, inline: true },
             { name: 'Ops to Next Rank', value: opsToNextRank, inline: true },
-            { name: 'Personnel Stats', value: `Led: \`${stats.ledOps || 0}\`\nRecruits: \`${stats.recruits || 0}\``, inline: false },
+            { name: 'Personnel Stats', value: `Attended: \`${stats.attended || 0}\`\nLed: \`${stats.ledOps || 0}\`\nRecruits: \`${stats.recruits || 0}\``, inline: false },
             { name: 'Promotion Req.', value: progressText, inline: false }
           )
           .setColor(0x5865f2)
@@ -799,7 +727,7 @@ client.on('interactionCreate', async (interaction) => {
           const finalName = member?.nickname || user.username;
           const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `\`${i + 1}.\``;
           const rank = getRank(member, entry.stats);
-          leaderboardText += `${medal} **${finalName}** — ${rank.name}\n`;
+          leaderboardText += `${medal} **${finalName}** — ${rank.name} — \`${entry.attended} ops\`\n`;
         }
 
         const embed = new EmbedBuilder()
@@ -943,10 +871,11 @@ client.on('interactionCreate', async (interaction) => {
 
           modal.addComponents(
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_name').setLabel("Operation Name").setStyle(TextInputStyle.Short).setRequired(true)),
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_time').setLabel("Start Time").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Friday 20:00 UTC')),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_time').setLabel("Start Time").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Friday 20:00')),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_description').setLabel("Briefing / Objective").setStyle(TextInputStyle.Paragraph).setRequired(true)),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_pings').setLabel("Roles to Ping (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. Admin, Moderator')),
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_roles').setLabel("Custom Roles (Optional, comma-separated)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder(`Defaults: ${guildConfig.selectableRoles.join(', ')}`))
+            // FIX: Added op_map field to modal so mapUrl actually gets populated
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_map').setLabel("Map Image URL (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('https://i.imgur.com/yourmap.png'))
           );
           return interaction.showModal(modal);
         } catch (e) {
@@ -982,10 +911,14 @@ client.on('interactionCreate', async (interaction) => {
         const nextRank = ranks[ranks.indexOf(currentRank) + 1];
         if (!nextRank) return interaction.followUp({ content: 'Operator is at max rank.', flags: [MessageFlags.Ephemeral] });
 
-        if (nextRank.name === 'Sergeant' && !stats.passedBCT) return interaction.followUp({ content: 'Ineligible: Operator has not passed BCT.', flags: [MessageFlags.Ephemeral] });
-        if (stats.attended < nextRank.minAttended) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minAttended} completed ops.`, flags: [MessageFlags.Ephemeral] });
-        if (nextRank.minLed && (stats.ledOps || 0) < nextRank.minLed) return interaction.followUp({ content: `Ineligible: Needs to lead ${nextRank.minLed} ops (Current: ${stats.ledOps || 0}).`, flags: [MessageFlags.Ephemeral] });
-        if (nextRank.minRecruits && (stats.recruits || 0) < nextRank.minRecruits) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minRecruits} recruits (Current: ${stats.recruits || 0}).`, flags: [MessageFlags.Ephemeral] });
+        // Re-fetch fresh stats to prevent stale embed promotions
+        const freshData = loadData();
+        const freshStats = ensureUserStats(freshData, targetId);
+
+        if (nextRank.name === 'Sergeant' && !freshStats.passedBCT) return interaction.followUp({ content: 'Ineligible: Operator has not passed BCT.', flags: [MessageFlags.Ephemeral] });
+        if (freshStats.attended < nextRank.minAttended) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minAttended} completed ops (Current: ${freshStats.attended}).`, flags: [MessageFlags.Ephemeral] });
+        if (nextRank.minLed && (freshStats.ledOps || 0) < nextRank.minLed) return interaction.followUp({ content: `Ineligible: Needs to lead ${nextRank.minLed} ops (Current: ${freshStats.ledOps || 0}).`, flags: [MessageFlags.Ephemeral] });
+        if (nextRank.minRecruits && (freshStats.recruits || 0) < nextRank.minRecruits) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minRecruits} recruits (Current: ${freshStats.recruits || 0}).`, flags: [MessageFlags.Ephemeral] });
 
         const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === nextRank.name.toLowerCase());
         if (role) {
@@ -1138,10 +1071,11 @@ client.on('interactionCreate', async (interaction) => {
 
         modal.addComponents(
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_name').setLabel("Operation Name").setStyle(TextInputStyle.Short).setValue(template.name)),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_time').setLabel("Start Time").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Friday 20:00 UTC')),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_time').setLabel("Start Time").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Friday 20:00')),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_description').setLabel("Briefing / Objective").setStyle(TextInputStyle.Paragraph).setValue(template.description)),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_pings').setLabel("Roles to Ping (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setValue(template.pings || '')),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_roles').setLabel("Custom Tactical Roles").setStyle(TextInputStyle.Short).setRequired(false))
+          // FIX: Map URL field added to template modal too
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_map').setLabel("Map Image URL (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('https://i.imgur.com/yourmap.png'))
         );
         return interaction.showModal(modal);
       }
@@ -1191,27 +1125,44 @@ client.on('interactionCreate', async (interaction) => {
         if (!currentOp) {
           return interaction.followUp({ content: 'ARCUS: Operation not found.', flags: [MessageFlags.Ephemeral] });
         }
-        if (interaction.user.id !== currentOp.creatorId) {
-          return interaction.followUp({ content: 'ARCUS: Only the creator can confirm attendance.', flags: [MessageFlags.Ephemeral] });
+        if (interaction.user.id !== currentOp.creatorId && !isAuthorized(interaction.member, currentOp.guildId)) {
+          return interaction.followUp({ content: 'ARCUS: Only the creator or authorized staff can confirm attendance.', flags: [MessageFlags.Ephemeral] });
         }
 
         const attendedIds = new Set(interaction.values);
         currentOp.attendance = {};
+
         for (const participant of currentOp.participants) {
           const attended = attendedIds.has(participant.userId);
           currentOp.attendance[participant.userId] = attended ? 'Attended' : 'Absent';
           const userStats = ensureUserStats(data, participant.userId);
-          userStats.joined += 1;
-          if (attended) userStats.attended += 1;
+
+          // FIX: Only increment joined once per op using attendance map
+          if (!currentOp.attendanceRecorded) {
+            userStats.joined += 1;
+            if (attended) {
+              userStats.attended += 1;
+
+              // FIX: Auto-increment ledOps for Squad Leads who attended
+              const isSquadLead = currentOp.squads.some(s =>
+                s.members.some(m => m.userId === participant.userId && m.role === 'Squad Lead')
+              );
+              if (isSquadLead) userStats.ledOps += 1;
+            }
+          }
         }
 
+        // FIX: Mark attendance as recorded so re-submission doesn't double count
+        currentOp.attendanceRecorded = true;
         data.operations[targetOpId] = currentOp;
         saveData(data);
 
-        const targetChannel = await client.channels.fetch(currentOp.channelId);
-        if (targetChannel) {
-          await targetChannel.send(`ARCUS: Attendance recorded for operation ${currentOp.name}.`);
-        }
+        try {
+          const targetChannel = await client.channels.fetch(currentOp.channelId);
+          if (targetChannel) {
+            await targetChannel.send(`ARCUS: Attendance recorded for operation **${currentOp.name}**.`);
+          }
+        } catch (e) {}
 
         return interaction.followUp({ content: 'ARCUS: Attendance confirmed and tracked.', flags: [MessageFlags.Ephemeral] });
       }
@@ -1289,7 +1240,7 @@ client.on('interactionCreate', async (interaction) => {
 
         saveData(data);
         await updateOperationMessage(client, op);
-        return interaction.reply({ content: `✅ **AAR Filed for Op ${op.name}**. The operation board has been updated.` });
+        return interaction.reply({ content: `✅ **AAR Filed for Op ${op.name}**. The operation board has been updated.`, flags: [MessageFlags.Ephemeral] });
       }
 
       if (parts[1] === 'modal' && parts[2] === 'submit') {
@@ -1299,9 +1250,9 @@ client.on('interactionCreate', async (interaction) => {
         const name = interaction.fields.getTextInputValue('op_name');
         const time = interaction.fields.getTextInputValue('op_time');
         const description = interaction.fields.getTextInputValue('op_description');
-        // FIX 3: pingRaw was previously undefined — now correctly read from modal fields
         const pingRaw = interaction.fields.getTextInputValue('op_pings') || '';
-        const customRolesRaw = interaction.fields.getTextInputValue('op_roles') || '';
+        // FIX: Removed custom roles field (was 5th field, now replaced by map URL)
+        // Custom roles can be added via /op tactical add instead
         const mapUrl = interaction.fields.getTextInputValue('op_map') || null;
 
         if (!channelId || channelId === 'undefined') {
@@ -1314,8 +1265,7 @@ client.on('interactionCreate', async (interaction) => {
           return interaction.reply({ content: 'ARCUS: Target channel no longer exists.', flags: [MessageFlags.Ephemeral] });
         }
         const guild = channel.guild;
-
-        const customRoles = customRolesRaw ? customRolesRaw.split(',').map(r => r.trim()).filter(r => r.length > 0) : null;
+        const guildConfig = getGuildConfig(guildId);
 
         let pingString = '';
         if (pingRaw) {
@@ -1350,7 +1300,11 @@ client.on('interactionCreate', async (interaction) => {
           }
         }
 
-        const opId = Math.random().toString(36).substring(2, 8).toUpperCase();
+        // FIX: Use safe unique ID generator
+        const opId = generateOpId(data);
+
+        // FIX: reminderMinutes now reads from template if loaded via template flow
+        // For manual creation default is 30, templates carry their own value via guildConfig
         const op = {
           id: opId,
           channelId,
@@ -1361,11 +1315,13 @@ client.on('interactionCreate', async (interaction) => {
           name,
           time,
           description,
+          mapUrl: mapUrl && mapUrl.startsWith('http') ? mapUrl : null,
           scheduledEventId,
           reminderMinutes: 30,
           reminderSent: false,
           locked: false,
-          selectableRoles: customRoles,
+          attendanceRecorded: false,
+          selectableRoles: guildConfig.selectableRoles,
           squads: [{ name: 'Alpha', members: [] }],
           participants: [],
           attendance: {}
@@ -1375,7 +1331,7 @@ client.on('interactionCreate', async (interaction) => {
         op.messageId = msg.id;
         data.operations[opId] = op;
         saveData(data);
-        return interaction.reply({ content: `ARCUS: Operation **${name}** created in <#${channelId}>.`, flags: [MessageFlags.Ephemeral] });
+        return interaction.reply({ content: `ARCUS: Operation **${name}** created in <#${channelId}>. ID: \`${opId}\``, flags: [MessageFlags.Ephemeral] });
       }
 
       if (parts[1] === 'modal' && parts[2] === 'prof_edit') {
@@ -1390,7 +1346,6 @@ client.on('interactionCreate', async (interaction) => {
         const bctVal = getVal('bct_status');
         if (bctVal !== null) ustats.passedBCT = (bctVal.toLowerCase() === 'yes' || bctVal.toLowerCase() === 'true');
 
-        // FIX 2: Use Math.max to prevent stale pre-fills from reducing real counts
         const fields = [
           { id: 'attended_ops', prop: 'attended' },
           { id: 'led_ops', prop: 'ledOps' },
@@ -1429,3 +1384,5 @@ client.on('interactionCreate', async (interaction) => {
 
 // --- Start Bot ---
 client.login(TOKEN);
+
+
