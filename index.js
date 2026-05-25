@@ -137,7 +137,6 @@ function parseOpTime(timeStr) {
 
 const squadNames = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Gamma', 'Hotel', 'India'];
 
-// --- FIX: Safe unique op ID generation ---
 function generateOpId(data) {
   let id;
   do {
@@ -205,7 +204,6 @@ function buildOperationEmbed(op) {
 
   embed.addFields({ name: 'Squads', value: formatSquadListing(op, op.guildId) });
 
-  // FIX: mapUrl now actually gets set from modal, so this will render
   if (op.mapUrl) embed.setImage(op.mapUrl);
 
   return embed.setFooter({ text: `Tactical ID: ${op.id} | Creator: ${op.creatorTag}` });
@@ -312,6 +310,15 @@ function ensureUserStats(data, userId) {
   if (u.recruits === undefined) u.recruits = 0;
   if (u.councilNote === undefined) u.councilNote = "";
   return u;
+}
+
+// --- FIX: Safe modal field reader --- 
+function safeGetField(interaction, fieldId) {
+  try {
+    return interaction.fields.getTextInputValue(fieldId) || null;
+  } catch {
+    return null;
+  }
 }
 
 async function updateOperationMessage(client, op) {
@@ -574,7 +581,6 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // FIX: AAR via slash command now opens modal directly, ignoring the unused 'report' text option
       if (subcommand === 'aar') {
         const opId = interaction.options.getString('id');
         const op = getOpById(data, opId);
@@ -863,7 +869,6 @@ client.on('interactionCreate', async (interaction) => {
         try {
           const guildId = parts[2] || interaction.guildId;
           const sourceChannelId = parts[3];
-          const guildConfig = getGuildConfig(guildId);
 
           const modal = new ModalBuilder()
             .setCustomId(`op:modal:submit:${guildId}:${sourceChannelId}`)
@@ -874,7 +879,6 @@ client.on('interactionCreate', async (interaction) => {
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_time').setLabel("Start Time").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Friday 20:00')),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_description').setLabel("Briefing / Objective").setStyle(TextInputStyle.Paragraph).setRequired(true)),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_pings').setLabel("Roles to Ping (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. Admin, Moderator')),
-            // FIX: Added op_map field to modal so mapUrl actually gets populated
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_map').setLabel("Map Image URL (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('https://i.imgur.com/yourmap.png'))
           );
           return interaction.showModal(modal);
@@ -911,7 +915,6 @@ client.on('interactionCreate', async (interaction) => {
         const nextRank = ranks[ranks.indexOf(currentRank) + 1];
         if (!nextRank) return interaction.followUp({ content: 'Operator is at max rank.', flags: [MessageFlags.Ephemeral] });
 
-        // Re-fetch fresh stats to prevent stale embed promotions
         const freshData = loadData();
         const freshStats = ensureUserStats(freshData, targetId);
 
@@ -949,19 +952,22 @@ client.on('interactionCreate', async (interaction) => {
         return await interaction.showModal(modal);
       }
 
-      // Operation action buttons (join/leave/role/squad)
+      // --- FIX: Operation action buttons (join/leave/role/squad) ---
+      // Only reach here for op namespace join/leave/role/squad buttons
       if (namespace !== 'op') return;
 
-      await interaction.deferUpdate().catch(() => {});
-
+      // FIX: Load op BEFORE deferring so we can reply properly if not found
       const data = loadData();
       const op = getOpById(data, targetId);
       if (!op) {
-        return interaction.followUp({ content: 'ARCUS: Operation not found or expired.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+        return interaction.reply({ content: 'ARCUS: Operation not found or expired.', flags: [MessageFlags.Ephemeral] });
       }
       if (op.locked) {
-        return interaction.followUp({ content: 'ARCUS: Operation is locked.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+        return interaction.reply({ content: 'ARCUS: Operation is locked.', flags: [MessageFlags.Ephemeral] });
       }
+
+      await interaction.deferUpdate().catch(() => {});
+
       const guildConfig = getGuildConfig(op.guildId);
 
       if (action === 'join') {
@@ -1074,7 +1080,6 @@ client.on('interactionCreate', async (interaction) => {
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_time').setLabel("Start Time").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Friday 20:00')),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_description').setLabel("Briefing / Objective").setStyle(TextInputStyle.Paragraph).setValue(template.description)),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_pings').setLabel("Roles to Ping (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setValue(template.pings || '')),
-          // FIX: Map URL field added to template modal too
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_map').setLabel("Map Image URL (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('https://i.imgur.com/yourmap.png'))
         );
         return interaction.showModal(modal);
@@ -1137,13 +1142,11 @@ client.on('interactionCreate', async (interaction) => {
           currentOp.attendance[participant.userId] = attended ? 'Attended' : 'Absent';
           const userStats = ensureUserStats(data, participant.userId);
 
-          // FIX: Only increment joined once per op using attendance map
           if (!currentOp.attendanceRecorded) {
             userStats.joined += 1;
             if (attended) {
               userStats.attended += 1;
 
-              // FIX: Auto-increment ledOps for Squad Leads who attended
               const isSquadLead = currentOp.squads.some(s =>
                 s.members.some(m => m.userId === participant.userId && m.role === 'Squad Lead')
               );
@@ -1152,7 +1155,6 @@ client.on('interactionCreate', async (interaction) => {
           }
         }
 
-        // FIX: Mark attendance as recorded so re-submission doesn't double count
         currentOp.attendanceRecorded = true;
         data.operations[targetOpId] = currentOp;
         saveData(data);
@@ -1174,8 +1176,8 @@ client.on('interactionCreate', async (interaction) => {
       if (customId === 'op:template:add_modal') {
         const name = interaction.fields.getTextInputValue('tmpl_name');
         const description = interaction.fields.getTextInputValue('tmpl_desc');
-        const pings = interaction.fields.getTextInputValue('tmpl_pings');
-        const reminder = parseInt(interaction.fields.getTextInputValue('tmpl_reminder')) || 30;
+        const pings = safeGetField(interaction, 'tmpl_pings') || '';
+        const reminder = parseInt(safeGetField(interaction, 'tmpl_reminder') || '30') || 30;
         const guildConfig = getGuildConfig(interaction.guildId);
         if (!guildConfig.templates) guildConfig.templates = [];
         guildConfig.templates.push({ name, description, pings, reminder });
@@ -1236,7 +1238,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!op) return interaction.reply({ content: 'ARCUS: Operation data lost.', flags: [MessageFlags.Ephemeral] });
 
         op.aar_phases = interaction.fields.getTextInputValue('aar_phases');
-        op.aar_performance = interaction.fields.getTextInputValue('aar_performance');
+        op.aar_performance = safeGetField(interaction, 'aar_performance') || '';
 
         saveData(data);
         await updateOperationMessage(client, op);
@@ -1250,10 +1252,10 @@ client.on('interactionCreate', async (interaction) => {
         const name = interaction.fields.getTextInputValue('op_name');
         const time = interaction.fields.getTextInputValue('op_time');
         const description = interaction.fields.getTextInputValue('op_description');
-        const pingRaw = interaction.fields.getTextInputValue('op_pings') || '';
-        // FIX: Removed custom roles field (was 5th field, now replaced by map URL)
-        // Custom roles can be added via /op tactical add instead
-        const mapUrl = interaction.fields.getTextInputValue('op_map') || null;
+        const pingRaw = safeGetField(interaction, 'op_pings') || '';
+        // FIX: Safe read for op_map — won't crash if field is missing
+        const mapRaw = safeGetField(interaction, 'op_map');
+        const mapUrl = mapRaw && mapRaw.startsWith('http') ? mapRaw : null;
 
         if (!channelId || channelId === 'undefined') {
           return interaction.reply({ content: 'ARCUS: Invalid channel configuration.', flags: [MessageFlags.Ephemeral] });
@@ -1300,11 +1302,8 @@ client.on('interactionCreate', async (interaction) => {
           }
         }
 
-        // FIX: Use safe unique ID generator
         const opId = generateOpId(data);
 
-        // FIX: reminderMinutes now reads from template if loaded via template flow
-        // For manual creation default is 30, templates carry their own value via guildConfig
         const op = {
           id: opId,
           channelId,
@@ -1315,7 +1314,7 @@ client.on('interactionCreate', async (interaction) => {
           name,
           time,
           description,
-          mapUrl: mapUrl && mapUrl.startsWith('http') ? mapUrl : null,
+          mapUrl,
           scheduledEventId,
           reminderMinutes: 30,
           reminderSent: false,
@@ -1339,11 +1338,7 @@ client.on('interactionCreate', async (interaction) => {
         const data = loadData();
         const ustats = ensureUserStats(data, targetUserId);
 
-        const getVal = (id) => {
-          try { return interaction.fields.getTextInputValue(id); } catch { return null; }
-        };
-
-        const bctVal = getVal('bct_status');
+        const bctVal = safeGetField(interaction, 'bct_status');
         if (bctVal !== null) ustats.passedBCT = (bctVal.toLowerCase() === 'yes' || bctVal.toLowerCase() === 'true');
 
         const fields = [
@@ -1352,16 +1347,16 @@ client.on('interactionCreate', async (interaction) => {
           { id: 'recruit_count', prop: 'recruits' }
         ];
         fields.forEach(f => {
-          const val = getVal(f.id);
+          const val = safeGetField(interaction, f.id);
           if (val !== null) {
             const num = parseInt(val);
             if (!isNaN(num)) ustats[f.prop] = Math.max(ustats[f.prop] || 0, num);
           }
         });
 
-        const notes = getVal('prom_notes');
+        const notes = safeGetField(interaction, 'prom_notes');
         if (notes !== null) ustats.promotionNotes = notes;
-        const cNote = getVal('council_note');
+        const cNote = safeGetField(interaction, 'council_note');
         if (cNote !== null) ustats.councilNote = cNote;
 
         saveData(data);
@@ -1384,5 +1379,3 @@ client.on('interactionCreate', async (interaction) => {
 
 // --- Start Bot ---
 client.login(TOKEN);
-
-
