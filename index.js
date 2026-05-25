@@ -312,7 +312,7 @@ function ensureUserStats(data, userId) {
   return u;
 }
 
-// --- FIX: Safe modal field reader --- 
+// --- Safe modal field reader (handles optional/missing fields without crashing) ---
 function safeGetField(interaction, fieldId) {
   try {
     return interaction.fields.getTextInputValue(fieldId) || null;
@@ -348,7 +348,7 @@ client.once(Events.ClientReady, async () => {
   console.log(`ARCUS ready: ${client.user.tag}`);
   client.user.setActivity('Operational Logs', { type: ActivityType.Watching });
 
-  // Reminder background task
+  // Reminder background task — supports multiple thresholds per op
   setInterval(async () => {
     const data = loadData();
     const now = Date.now();
@@ -356,25 +356,43 @@ client.once(Events.ClientReady, async () => {
 
     for (const opId in data.operations) {
       const op = data.operations[opId];
-      if (op.locked || !op.reminderMinutes || op.reminderSent) continue;
+      if (op.locked) continue;
 
       const startTime = parseOpTime(op.time);
       if (!startTime || isNaN(startTime)) continue;
 
-      const reminderThreshold = startTime - (op.reminderMinutes * 60000);
-      if (now >= reminderThreshold) {
-        const participants = op.participants || [];
-        for (const p of participants) {
-          try {
-            const user = await client.users.fetch(p.userId);
-            await user.send(`🔔 **ARCUS Reminder**: Operation **${op.name}** starts in approximately ${op.reminderMinutes} minutes!`);
-          } catch (e) {
-            console.error(`Failed to DM reminder to ${p.userId}`);
-          }
-        }
-        op.reminderSent = true;
-        changed = true;
+      // Backward compat: old ops may have reminderMinutes as a number and reminderSent as bool
+      const thresholds = Array.isArray(op.reminderMinutes)
+        ? op.reminderMinutes
+        : (op.reminderMinutes ? [op.reminderMinutes] : []);
+      if (thresholds.length === 0) continue;
+
+      // remindersSent is the new array; fall back to legacy reminderSent bool
+      if (!Array.isArray(op.remindersSent)) {
+        op.remindersSent = op.reminderSent === true ? thresholds.slice() : [];
       }
+
+      for (const mins of thresholds) {
+        if (op.remindersSent.includes(mins)) continue;
+        const threshold = startTime - (mins * 60000);
+        if (now >= threshold) {
+          const participants = op.participants || [];
+          for (const p of participants) {
+            try {
+              const user = await client.users.fetch(p.userId);
+              await user.send(`🔔 **ARCUS Reminder**: Operation **${op.name}** starts in approximately **${mins} minute${mins !== 1 ? 's' : ''}**!`);
+            } catch (e) {
+              console.error(`Failed to DM reminder to ${p.userId}`);
+            }
+          }
+          op.remindersSent.push(mins);
+          changed = true;
+        }
+      }
+
+      // Clean up legacy field if present
+      if (op.reminderSent !== undefined) delete op.reminderSent;
+      data.operations[opId] = op;
     }
     if (changed) saveData(data);
   }, 60000);
@@ -879,7 +897,7 @@ client.on('interactionCreate', async (interaction) => {
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_time').setLabel("Start Time").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Friday 20:00')),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_description').setLabel("Briefing / Objective").setStyle(TextInputStyle.Paragraph).setRequired(true)),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_pings').setLabel("Roles to Ping (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. Admin, Moderator')),
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_map').setLabel("Map Image URL (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('https://i.imgur.com/yourmap.png'))
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_reminder').setLabel("Reminders (mins, comma separated)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. 60, 15, 5').setValue('60, 15'))
           );
           return interaction.showModal(modal);
         } catch (e) {
@@ -952,11 +970,9 @@ client.on('interactionCreate', async (interaction) => {
         return await interaction.showModal(modal);
       }
 
-      // --- FIX: Operation action buttons (join/leave/role/squad) ---
-      // Only reach here for op namespace join/leave/role/squad buttons
+      // --- Operation action buttons (join/leave/role/squad) ---
       if (namespace !== 'op') return;
 
-      // FIX: Load op BEFORE deferring so we can reply properly if not found
       const data = loadData();
       const op = getOpById(data, targetId);
       if (!op) {
@@ -1080,7 +1096,7 @@ client.on('interactionCreate', async (interaction) => {
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_time').setLabel("Start Time").setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Friday 20:00')),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_description').setLabel("Briefing / Objective").setStyle(TextInputStyle.Paragraph).setValue(template.description)),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_pings').setLabel("Roles to Ping (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setValue(template.pings || '')),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_map').setLabel("Map Image URL (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('https://i.imgur.com/yourmap.png'))
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_reminder').setLabel("Reminders (mins, comma separated)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. 60, 15, 5').setValue(Array.isArray(template.reminder) ? template.reminder.join(', ') : (template.reminder ? String(template.reminder) : '60, 15')))
         );
         return interaction.showModal(modal);
       }
@@ -1185,10 +1201,11 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: `ARCUS: Mission template **${name}** has been registered.`, flags: [MessageFlags.Ephemeral] });
       }
 
+      // FIX: Use safeGetField for both optional fields in the roles modal
       if (customId === 'settings:modal:roles') {
         const guildConfig = getGuildConfig(interaction.guildId);
-        const add = interaction.fields.getTextInputValue('add_role').trim();
-        const remove = interaction.fields.getTextInputValue('remove_role').trim();
+        const add = (safeGetField(interaction, 'add_role') || '').trim();
+        const remove = (safeGetField(interaction, 'remove_role') || '').trim();
         let feedback = [];
 
         if (add) {
@@ -1253,9 +1270,16 @@ client.on('interactionCreate', async (interaction) => {
         const time = interaction.fields.getTextInputValue('op_time');
         const description = interaction.fields.getTextInputValue('op_description');
         const pingRaw = safeGetField(interaction, 'op_pings') || '';
-        // FIX: Safe read for op_map — won't crash if field is missing
-        const mapRaw = safeGetField(interaction, 'op_map');
+        const mapRaw = safeGetField(interaction, 'op_map'); // legacy safe-read, may be null
         const mapUrl = mapRaw && mapRaw.startsWith('http') ? mapRaw : null;
+
+        // Parse reminder thresholds — e.g. "60, 15, 5" → [60, 15, 5]
+        const reminderRaw = safeGetField(interaction, 'op_reminder') || '60, 15';
+        const reminderMinutes = reminderRaw
+          .split(',')
+          .map(s => parseInt(s.trim()))
+          .filter(n => !isNaN(n) && n > 0)
+          .sort((a, b) => b - a); // descending so longest fires first
 
         if (!channelId || channelId === 'undefined') {
           return interaction.reply({ content: 'ARCUS: Invalid channel configuration.', flags: [MessageFlags.Ephemeral] });
@@ -1316,8 +1340,8 @@ client.on('interactionCreate', async (interaction) => {
           description,
           mapUrl,
           scheduledEventId,
-          reminderMinutes: 30,
-          reminderSent: false,
+          reminderMinutes,   // array e.g. [60, 15]
+          remindersSent: [], // tracks which thresholds have fired
           locked: false,
           attendanceRecorded: false,
           selectableRoles: guildConfig.selectableRoles,
@@ -1330,7 +1354,8 @@ client.on('interactionCreate', async (interaction) => {
         op.messageId = msg.id;
         data.operations[opId] = op;
         saveData(data);
-        return interaction.reply({ content: `ARCUS: Operation **${name}** created in <#${channelId}>. ID: \`${opId}\``, flags: [MessageFlags.Ephemeral] });
+        const reminderDisplay = reminderMinutes.length > 0 ? reminderMinutes.map(m => `${m}m`).join(', ') : 'None';
+        return interaction.reply({ content: `ARCUS: Operation **${name}** created in <#${channelId}>. ID: \`${opId}\`\nReminders set: \`${reminderDisplay}\` before start.`, flags: [MessageFlags.Ephemeral] });
       }
 
       if (parts[1] === 'modal' && parts[2] === 'prof_edit') {
@@ -1354,8 +1379,7 @@ client.on('interactionCreate', async (interaction) => {
           }
         });
 
-        const notes = safeGetField(interaction, 'prom_notes');
-        if (notes !== null) ustats.promotionNotes = notes;
+        // FIX: Removed dead read of 'prom_notes' — field doesn't exist in the modal
         const cNote = safeGetField(interaction, 'council_note');
         if (cNote !== null) ustats.councilNote = cNote;
 
