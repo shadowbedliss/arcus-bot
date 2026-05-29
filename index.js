@@ -71,7 +71,6 @@ function getGuildConfig(guildId) {
       selectableRoles: ["Point Man", "Overwatch", "Medic", "Demolitions"],
       templates: [],
       defaultRole: "Point Man",
-      commendations: []
       commendations: [],
       logsChannelId: "",
       announcementChannelId: ""
@@ -1087,7 +1086,7 @@ client.on('interactionCreate', async (interaction) => {
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_pings').setLabel("Roles to Ping (Optional)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. Admin, Moderator')),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_roles').setLabel("Custom Roles (Optional, comma-separated)").setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder(`Defaults: ${guildConfig.selectableRoles.join(', ')}`))
           );
-          return interaction.showModal(modal);
+          interaction.showModal(modal);
         } catch (e) {
           return interaction.reply({ content: 'ARCUS: Failed to open setup menu. Please ensure your DMs are open.', flags: [MessageFlags.Ephemeral] });
         }
