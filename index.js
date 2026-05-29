@@ -70,7 +70,11 @@ function getGuildConfig(guildId) {
       maxSquadSize: 4,
       selectableRoles: ["Point Man", "Overwatch", "Medic", "Demolitions"],
       templates: [],
-      defaultRole: "Point Man"
+      defaultRole: "Point Man",
+      commendations: []
+      commendations: [],
+      logsChannelId: "",
+      announcementChannelId: ""
     };
     saveConfig();
   }
@@ -196,8 +200,6 @@ function buildOperationEmbed(op) {
 
   embed.addFields({ name: 'Squads', value: formatSquadListing(op, op.guildId) });
   
-  if (op.mapUrl) embed.setImage(op.mapUrl);
-
   return embed.setFooter({ text: `Tactical ID: ${op.id} | Creator: ${op.creatorTag}` });
 }
 
@@ -363,13 +365,32 @@ client.once(Events.ClientReady, async () => {
     .addSubcommandGroup(group =>
       group.setName('template')
         .setDescription('Manage Mission templates')
-        .addSubcommand(sub => sub.setName('add').setDescription('Create a new mission template'))
+        .addSubcommand(sub => sub.setName('add').setDescription('Admin: Create a new mission template'))
+        .addSubcommand(sub => sub.setName('suggest').setDescription('Member: Submit a mission template for approval'))
         .addSubcommand(sub => sub.setName('remove').setDescription('Delete a template by index').addIntegerOption(o => o.setName('index').setDescription('The template index').setRequired(true)))
         .addSubcommand(sub => sub.setName('list').setDescription('List all saved templates')))
+    .addSubcommandGroup(group =>
+      group.setName('commendation')
+        .setDescription('Manage the Commendation Registry')
+        .addSubcommand(sub => sub.setName('add').setDescription('Add a medal to the registry').addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true)).addStringOption(o => o.setName('reqs').setDescription('Criteria for award').setRequired(true)))
+        .addSubcommand(sub => sub.setName('remove').setDescription('Remove a medal from the registry').addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true)))
+        .addSubcommand(sub => sub.setName('list').setDescription('List all available commendations')))
     .addSubcommand(sub =>
       sub.setName('set_channel')
         .setDescription('Set the default channel for operations')
         .addChannelOption(opt => opt.setName('channel').setDescription('The channel to post operations in').setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('set_logs_channel')
+        .setDescription('Admin: Set the channel for system logs')
+        .addChannelOption(opt => opt.setName('channel').setDescription('The channel for logs').setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('set_announcement_channel')
+        .setDescription('Admin: Set the channel for promotions and commendations')
+        .addChannelOption(opt => opt.setName('channel').setDescription('The channel for announcements').setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('log')
+        .setDescription('Authorized: Send a manual entry to the logs channel')
+        .addStringOption(opt => opt.setName('message').setDescription('The log entry content').setRequired(true)))
     .addSubcommand(sub =>
       sub.setName('stats')
         .setDescription('View your operation participation statistics')
@@ -389,6 +410,11 @@ client.once(Events.ClientReady, async () => {
     .addSubcommand(sub =>
       sub.setName('leaderboard')
         .setDescription('View the top performing operators in the system'))
+    .addSubcommand(sub =>
+      sub.setName('award')
+        .setDescription('Admin: Award a medal or commendation to an operator')
+        .addUserOption(opt => opt.setName('target').setDescription('The operator to award').setRequired(true))
+        .addStringOption(opt => opt.setName('medal').setDescription('The name of the medal/commendation').setRequired(true)))
     .addSubcommand(sub =>
       sub.setName('clear_stats')
         .setDescription('Admin: Permanently wipe all attendance statistics'));
@@ -618,11 +644,17 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       if (group === 'template') {
-        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
         const guildConfig = getGuildConfig(interaction.guildId);
 
-        if (subcommand === 'add') {
-          const modal = new ModalBuilder().setCustomId('op:template:add_modal').setTitle('Create Mission Template');
+        if (subcommand === 'add' || subcommand === 'suggest') {
+          if (subcommand === 'add' && !isAuthorized(interaction.member, interaction.guildId)) {
+            return interaction.reply({ content: 'ARCUS: Admin privileges required.', flags: [MessageFlags.Ephemeral] });
+          }
+          
+          const modalId = subcommand === 'add' ? 'op:template:add_modal' : 'op:template:suggest_modal';
+          const modalTitle = subcommand === 'add' ? 'Create Mission Template' : 'Suggest Mission Template';
+          
+          const modal = new ModalBuilder().setCustomId(modalId).setTitle(modalTitle);
           modal.addComponents(
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('tmpl_name').setLabel('Template Name').setStyle(TextInputStyle.Short).setRequired(true)),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('tmpl_desc').setLabel('Default Briefing').setStyle(TextInputStyle.Paragraph).setRequired(true)),
@@ -631,6 +663,7 @@ client.on('interactionCreate', async (interaction) => {
           );
           return await interaction.showModal(modal);
         } else if (subcommand === 'remove') {
+          if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Admin privileges required.', flags: [MessageFlags.Ephemeral] });
           const idx = interaction.options.getInteger('index');
           if (guildConfig.templates && guildConfig.templates[idx]) {
             const removed = guildConfig.templates.splice(idx, 1);
@@ -641,6 +674,29 @@ client.on('interactionCreate', async (interaction) => {
         } else {
           const list = (guildConfig.templates || []).map((t, i) => `\`[${i}]\` **${t.name}**: ${t.description.substring(0, 40)}...`).join('\n') || '_No templates saved._';
           return interaction.reply({ content: `**Mission Templates:**\n${list}`, flags: [MessageFlags.Ephemeral] });
+        }
+      }
+
+      if (group === 'commendation') {
+        const guildConfig = getGuildConfig(interaction.guildId);
+        if (subcommand === 'add') {
+          if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Admin privileges required.', flags: [MessageFlags.Ephemeral] });
+          const name = interaction.options.getString('name');
+          const reqs = interaction.options.getString('reqs');
+          guildConfig.commendations = guildConfig.commendations.filter(c => c.name !== name);
+          guildConfig.commendations.push({ name, requirements: reqs });
+          saveConfig();
+          return interaction.reply({ content: `ARCUS: Commendation **${name}** added to the registry.` });
+        } else if (subcommand === 'remove') {
+          if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Admin privileges required.', flags: [MessageFlags.Ephemeral] });
+          const name = interaction.options.getString('name');
+          guildConfig.commendations = guildConfig.commendations.filter(c => c.name !== name);
+          saveConfig();
+          return interaction.reply({ content: `ARCUS: Commendation **${name}** removed.` });
+        } else {
+          const list = guildConfig.commendations.map(c => `• **${c.name}**: ${c.requirements}`).join('\n') || '_No commendations registered._';
+          const embed = new EmbedBuilder().setTitle('🎖️ ARCUS Commendation Registry').setDescription(list).setColor(0xFFD700);
+          return interaction.reply({ embeds: [embed] });
         }
       }
 
@@ -672,6 +728,42 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: `ARCUS: Operations channel set to <#${channel.id}>.`, flags: [MessageFlags.Ephemeral] });
       }
 
+      if (subcommand === 'set_logs_channel') {
+        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+        const guildConfig = getGuildConfig(interaction.guildId);
+        const channel = interaction.options.getChannel('channel');
+        guildConfig.logsChannelId = channel.id;
+        saveConfig();
+        return interaction.reply({ content: `ARCUS: Logs channel set to <#${channel.id}>.`, flags: [MessageFlags.Ephemeral] });
+      }
+
+      if (subcommand === 'set_announcement_channel') {
+        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+        const guildConfig = getGuildConfig(interaction.guildId);
+        const channel = interaction.options.getChannel('channel');
+        guildConfig.announcementChannelId = channel.id;
+        saveConfig();
+        return interaction.reply({ content: `ARCUS: Announcements channel set to <#${channel.id}>.`, flags: [MessageFlags.Ephemeral] });
+      }
+
+      if (subcommand === 'log') {
+        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+        const msg = interaction.options.getString('message');
+        const guildConfig = getGuildConfig(interaction.guildId);
+        if (!guildConfig.logsChannelId) return interaction.reply({ content: 'ARCUS: Logs channel not configured.', flags: [MessageFlags.Ephemeral] });
+        
+        const channel = await interaction.guild.channels.fetch(guildConfig.logsChannelId).catch(() => null);
+        if (!channel) return interaction.reply({ content: 'ARCUS: Logs channel not found.', flags: [MessageFlags.Ephemeral] });
+
+        const logEmbed = new EmbedBuilder()
+          .setAuthor({ name: interaction.user.tag, iconURL: interaction.user.displayAvatarURL() })
+          .setDescription(msg)
+          .setColor(0x808080)
+          .setTimestamp();
+        await channel.send({ embeds: [logEmbed] });
+        return interaction.reply({ content: 'ARCUS: Entry logged.', flags: [MessageFlags.Ephemeral] });
+      }
+
       if (subcommand === 'stats') {
         const target = interaction.options.getUser('target') || interaction.user;
         const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null);
@@ -692,6 +784,31 @@ client.on('interactionCreate', async (interaction) => {
           .setColor(0x5865f2);
 
         return interaction.reply({ embeds: [embed] });
+      }
+
+      if (subcommand === 'award') {
+        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Admin privileges required.', flags: [MessageFlags.Ephemeral] });
+        const target = interaction.options.getUser('target');
+        const medal = interaction.options.getString('medal');
+
+        const stats = ensureUserStats(data, target.id);
+        stats.medals.push({ name: medal, date: new Date().toISOString().split('T')[0] });
+        saveData(data);
+
+        const guildConfig = getGuildConfig(interaction.guildId);
+        if (guildConfig.announcementChannelId) {
+          const annChannel = await interaction.guild.channels.fetch(guildConfig.announcementChannelId).catch(() => null);
+          if (annChannel) {
+            const annEmbed = new EmbedBuilder()
+              .setTitle('🎖️ ARCUS Commendation Issued')
+              .setDescription(`The medal **${medal}** has been awarded to <@${target.id}> for outstanding service.`)
+              .setColor(0xFFD700)
+              .setTimestamp();
+            await annChannel.send({ embeds: [annEmbed] });
+          }
+        }
+
+        return interaction.reply({ content: `🎖️ **ARCUS Commendation**: **${medal}** awarded to <@${target.id}>.` });
       }
 
       if (subcommand === 'profile') {
@@ -737,6 +854,11 @@ client.on('interactionCreate', async (interaction) => {
 
         if (currentRank.name === 'Recruit') {
           embed.addFields({ name: 'Qualification Status', value: `BCT: ${stats.passedBCT ? '✅ Passed' : '❌ Pending'}\nNotes: ${stats.promotionNotes || '_No notes record_'}`, inline: false });
+        }
+
+        if (stats.medals && stats.medals.length > 0) {
+          const medalList = stats.medals.map(m => `• **${m.name}** (${m.date})`).join('\n');
+          embed.addFields({ name: 'Medals & Commendations', value: medalList, inline: false });
         }
 
         if (isCouncilOrAbove) {
@@ -923,6 +1045,26 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.update({ embeds: [embed], components: [row, row2] });
       }
 
+      if (namespace === 'op' && action === 'tmpl_approve') {
+        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'Unauthorized.', flags: [MessageFlags.Ephemeral] });
+        const embed = interaction.message.embeds[0];
+        const name = embed.title.replace('Template Suggestion: ', '');
+        const description = embed.fields.find(f => f.name === 'Briefing').value;
+        const pings = embed.fields.find(f => f.name === 'Pings').value;
+        const reminder = parseInt(embed.fields.find(f => f.name === 'Reminder').value) || 30;
+
+        const guildConfig = getGuildConfig(interaction.guildId);
+        guildConfig.templates.push({ name, description, pings, reminder });
+        saveConfig();
+
+        return interaction.update({ content: `✅ **Approved by ${interaction.user.username}**. Template saved to registry.`, components: [] });
+      }
+
+      if (namespace === 'op' && action === 'tmpl_reject') {
+        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'Unauthorized.', flags: [MessageFlags.Ephemeral] });
+        return interaction.update({ content: `❌ **Rejected by ${interaction.user.username}**.`, components: [] });
+      }
+
       if (namespace === 'settings' && action === 'close') {
         await interaction.deferUpdate();
         return interaction.deleteReply();
@@ -991,6 +1133,19 @@ client.on('interactionCreate', async (interaction) => {
             await member.roles.remove(currentRole).catch(e => console.error(`Failed to remove old rank role ${currentRole.name}:`, e));
           }
           await member.roles.add(role).catch(e => console.error(`Failed to add new rank role ${role.name}:`, e));
+        }
+
+        const guildConfig = getGuildConfig(interaction.guildId);
+        if (guildConfig.announcementChannelId) {
+          const annChannel = await interaction.guild.channels.fetch(interaction.guildId).then(g => g.channels.fetch(guildConfig.announcementChannelId)).catch(() => null);
+          if (annChannel) {
+            const annEmbed = new EmbedBuilder()
+              .setTitle('🎖️ Personnel Promotion')
+              .setDescription(`Attention! <@${targetId}> has been promoted to the rank of **${nextRank.name}**!`)
+              .setColor(0x00FF00)
+              .setTimestamp();
+            await annChannel.send({ embeds: [annEmbed] });
+          }
         }
 
         try {
@@ -1222,11 +1377,43 @@ client.on('interactionCreate', async (interaction) => {
         const description = interaction.fields.getTextInputValue('tmpl_desc');
         const pings = interaction.fields.getTextInputValue('tmpl_pings');
         const reminder = parseInt(interaction.fields.getTextInputValue('tmpl_reminder')) || 30;
+        
         const guildConfig = getGuildConfig(interaction.guildId);
         if (!guildConfig.templates) guildConfig.templates = [];
         guildConfig.templates.push({ name, description, pings, reminder });
         saveConfig();
         return interaction.reply({ content: `ARCUS: Mission template **${name}** has been registered.`, flags: [MessageFlags.Ephemeral] });
+      }
+
+      if (customId === 'op:template:suggest_modal') {
+        const name = interaction.fields.getTextInputValue('tmpl_name');
+        const description = interaction.fields.getTextInputValue('tmpl_desc');
+        const pings = interaction.fields.getTextInputValue('tmpl_pings') || 'None';
+        const reminder = interaction.fields.getTextInputValue('tmpl_reminder') || '30';
+        
+        const guildConfig = getGuildConfig(interaction.guildId);
+        if (!guildConfig.logsChannelId) return interaction.reply({ content: 'ARCUS: Log channel not configured. Contact an admin.', flags: [MessageFlags.Ephemeral] });
+        
+        const logChannel = await interaction.guild.channels.fetch(guildConfig.logsChannelId).catch(() => null);
+        if (!logChannel) return interaction.reply({ content: 'ARCUS: Log channel not found.', flags: [MessageFlags.Ephemeral] });
+
+        const suggestEmbed = new EmbedBuilder()
+          .setTitle(`Template Suggestion: ${name}`)
+          .setAuthor({ name: interaction.user.tag, iconURL: interaction.user.displayAvatarURL() })
+          .addFields(
+            { name: 'Briefing', value: description },
+            { name: 'Pings', value: pings, inline: true },
+            { name: 'Reminder', value: reminder, inline: true }
+          )
+          .setColor(0x3498db);
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('op:tmpl_approve').setLabel('Approve & Save').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId('op:tmpl_reject').setLabel('Reject').setStyle(ButtonStyle.Danger)
+        );
+
+        await logChannel.send({ embeds: [suggestEmbed], components: [row] });
+        return interaction.reply({ content: 'ARCUS: Your mission template has been submitted for review.', flags: [MessageFlags.Ephemeral] });
       }
 
       if (customId === 'settings:modal:roles') {
@@ -1296,8 +1483,9 @@ client.on('interactionCreate', async (interaction) => {
         const name = interaction.fields.getTextInputValue('op_name');
         const time = interaction.fields.getTextInputValue('op_time');
         const description = interaction.fields.getTextInputValue('op_description');
-        const customRolesRaw = interaction.fields.getTextInputValue('op_roles') || '';
-        const mapUrl = interaction.fields.getTextInputValue('op_map') || null;
+
+        const pingRaw = interaction.fields.fields.has('op_pings') ? interaction.fields.getTextInputValue('op_pings') : '';
+        const customRolesRaw = interaction.fields.fields.has('op_roles') ? interaction.fields.getTextInputValue('op_roles') : '';
 
         if (!channelId || channelId === 'undefined') {
           return interaction.reply({ content: 'ARCUS: Invalid channel configuration.', flags: [MessageFlags.Ephemeral] });

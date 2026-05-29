@@ -51,9 +51,16 @@ function buildCommands() {
     .addSubcommandGroup(group =>
       group.setName('template')
         .setDescription('Manage Mission templates')
-        .addSubcommand(sub => sub.setName('add').setDescription('Create a new mission template'))
+        .addSubcommand(sub => sub.setName('add').setDescription('Admin: Create a new mission template'))
+        .addSubcommand(sub => sub.setName('suggest').setDescription('Member: Submit a mission template for approval'))
         .addSubcommand(sub => sub.setName('remove').setDescription('Delete a template by index').addIntegerOption(o => o.setName('index').setDescription('The template index').setRequired(true)))
         .addSubcommand(sub => sub.setName('list').setDescription('List all saved templates')))
+    .addSubcommandGroup(group =>
+      group.setName('commendation')
+        .setDescription('Manage the Commendation Registry')
+        .addSubcommand(sub => sub.setName('add').setDescription('Add a medal to the registry').addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true)).addStringOption(o => o.setName('reqs').setDescription('Criteria for award').setRequired(true)))
+        .addSubcommand(sub => sub.setName('remove').setDescription('Remove a medal from the registry').addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true)))
+        .addSubcommand(sub => sub.setName('list').setDescription('List all available commendations')))
     .addSubcommand(sub =>
       sub.setName('set_channel')
         .setDescription('Set the default channel for operations')
