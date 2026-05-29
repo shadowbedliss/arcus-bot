@@ -312,7 +312,6 @@ client.once(Events.ClientReady, async () => {
   const commandData = new SlashCommandBuilder()
     .setName('op')
     .setDescription('ARCUS operation commands')
-    .addSubcommand(s => s.setName('create').setDescription('Start the operation creation process in DMs'))
     .addSubcommand(s => s.setName('end').setDescription('End an operation').addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true)))
     .addSubcommand(s => s.setName('delete').setDescription('Admin: Delete an operation').addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true)))
     .addSubcommandGroup(g => g.setName('admin').setDescription('Manage Admin roles')
@@ -347,14 +346,15 @@ client.once(Events.ClientReady, async () => {
     .addSubcommand(s => s.setName('clear_stats').setDescription('Admin: Wipe all attendance statistics'));
 
   try {
-    const guilds = client.guilds.cache.map(g => g.id);
-    if (!guilds.length) { console.warn('ARCUS: Not in any guilds — command sync skipped.'); return; }
+    // Ensure we fetch all guilds to have an accurate cache
+    const guilds = await client.guilds.fetch().then(gs => gs.map(g => g.id)).catch(() => []);
+    if (!guilds.length) { console.warn('ARCUS: Not in any guilds — command sync skipped.'); }
+    
     for (const gId of guilds) {
-      console.log(`ARCUS: Syncing commands for guild ${gId}`);
       await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gId), { body: [commandData.toJSON()] })
-        .catch(err => console.error(`Sync failed for ${gId}:`, err));
+        .catch(err => console.error(`ARCUS: Sync failed for guild ${gId}:`, err.message));
     }
-    console.log('ARCUS: Commands synchronized.');
+    console.log('ARCUS: Slash commands synchronized across all available guilds.');
   } catch (error) {
     console.error('Command registration error:', error);
   }
@@ -1419,4 +1419,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-client.login(TOKEN);
+client.login(TOKEN).catch(err => {
+  console.error('ARCUS Critical: Failed to login to Discord.');
+  if (err.message.includes('privileged intent')) {
+    console.error('ACTION REQUIRED: Enable "Server Members Intent" in the Discord Developer Portal.');
+  }
+  console.error('Error Details:', err);
+});

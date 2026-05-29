@@ -66,6 +66,18 @@ function buildCommands() {
         .setDescription('Set the default channel for operations')
         .addChannelOption(opt => opt.setName('channel').setDescription('The channel to post operations in').setRequired(true)))
     .addSubcommand(sub =>
+      sub.setName('set_logs_channel')
+        .setDescription('Admin: Set the channel for system logs')
+        .addChannelOption(opt => opt.setName('channel').setDescription('The channel for logs').setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('set_announcement_channel')
+        .setDescription('Admin: Set the channel for promotions and commendations')
+        .addChannelOption(opt => opt.setName('channel').setDescription('The channel for announcements').setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('log')
+        .setDescription('Authorized: Send a manual entry to the logs channel')
+        .addStringOption(opt => opt.setName('message').setDescription('The log entry content').setRequired(true)))
+    .addSubcommand(sub =>
       sub.setName('stats')
         .setDescription('View your operation participation statistics')
         .addUserOption(opt => opt.setName('target').setDescription('The user to view stats for').setRequired(false)))
@@ -81,6 +93,11 @@ function buildCommands() {
       sub.setName('profile')
         .setDescription('View an ARCUS operational service record')
         .addUserOption(opt => opt.setName('target').setDescription('The user to view').setRequired(false)))
+    .addSubcommand(sub =>
+      sub.setName('award')
+        .setDescription('Admin: Award a medal or commendation to an operator')
+        .addUserOption(opt => opt.setName('target').setDescription('The operator to award').setRequired(true))
+        .addStringOption(opt => opt.setName('medal').setDescription('The name of the medal/commendation').setRequired(true)))
     .addSubcommand(sub =>
       sub.setName('leaderboard')
         .setDescription('View the top ARCUS operators'))
