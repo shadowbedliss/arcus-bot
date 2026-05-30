@@ -1,4 +1,3 @@
-
 // ARCUS: Operations Management Bot
 require('dotenv').config();
 const {
@@ -56,15 +55,15 @@ function getGuildConfig(guildId) {
   if (!guildId) return {};
   if (!config.guilds[guildId]) {
     config.guilds[guildId] = {
-      authorizedRoles:     ['Admin'],
-      eventCreatorRoles:   [],
-      operationsChannelId: '',
-      maxSquadSize:        4,
-      selectableRoles:     ['Point Man', 'Overwatch', 'Medic', 'Demolitions'],
-      templates:           [],
-      defaultRole:         'Point Man',
-      commendations:       [],
-      logsChannelId:       '',
+      authorizedRoles:      ['Admin'],
+      eventCreatorRoles:    [],
+      operationsChannelId:  '',
+      maxSquadSize:         4,
+      selectableRoles:      ['Point Man', 'Overwatch', 'Medic', 'Demolitions'],
+      templates:            [],
+      defaultRole:          'Point Man',
+      commendations:        [],
+      logsChannelId:        '',
       announcementChannelId: ''
     };
     saveConfig();
@@ -105,8 +104,8 @@ function parseOpTime(timeStr) {
   const now  = new Date();
   const days = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
   const parts = timeStr.toLowerCase().trim().split(/\s+/);
-  const dayIndex  = parts.findIndex(p => days.includes(p));
-  const timePart  = parts.find(p => p.includes(':') || p.endsWith('am') || p.endsWith('pm'));
+  const dayIndex = parts.findIndex(p => days.includes(p));
+  const timePart = parts.find(p => p.includes(':') || p.endsWith('am') || p.endsWith('pm'));
 
   if (dayIndex !== -1 && timePart) {
     const targetDay = days.indexOf(parts[dayIndex]);
@@ -233,14 +232,14 @@ function getRank(member, stats) {
 function ensureUserStats(data, userId) {
   if (!data.users[userId]) data.users[userId] = {};
   const u = data.users[userId];
-  u.joined       ??= 0;
-  u.attended     ??= 0;
-  u.medals       ??= [];
-  u.passedBCT    ??= false;
+  u.joined         ??= 0;
+  u.attended       ??= 0;
+  u.medals         ??= [];
+  u.passedBCT      ??= false;
   u.promotionNotes ??= '';
-  u.ledOps       ??= 0;
-  u.recruits     ??= 0;
-  u.councilNote  ??= '';
+  u.ledOps         ??= 0;
+  u.recruits       ??= 0;
+  u.councilNote    ??= '';
   return u;
 }
 
@@ -264,9 +263,9 @@ function buildSettingsEmbed(guildConfig, section = 'main') {
       .setFooter({ text: 'ARCUS v1.0.0 • All systems operational' });
   } else if (section === 'gen') {
     embed.setTitle('⚙️ General Configuration').addFields(
-      { name: '🛡️ Default Role',    value: `\`${guildConfig.defaultRole}\``, inline: true },
-      { name: '📏 Max Squad Size',  value: `\`${guildConfig.maxSquadSize}\``, inline: true },
-      { name: '📍 Ops Channel',     value: guildConfig.operationsChannelId ? `<#${guildConfig.operationsChannelId}>` : '`Not Set`' }
+      { name: '🛡️ Default Role',   value: `\`${guildConfig.defaultRole}\``, inline: true },
+      { name: '📏 Max Squad Size', value: `\`${guildConfig.maxSquadSize}\``, inline: true },
+      { name: '📍 Ops Channel',    value: guildConfig.operationsChannelId ? `<#${guildConfig.operationsChannelId}>` : '`Not Set`' }
     );
   } else if (section === 'perms') {
     embed.setTitle('🛡️ Permissions Registry').addFields(
@@ -290,6 +289,61 @@ function safeGetField(interaction, fieldId) {
   catch { return null; }
 }
 
+// ─── Build Slash Commands ─────────────────────────────────────────────────────
+function buildCommandData() {
+  return new SlashCommandBuilder()
+    .setName('op')
+    .setDescription('ARCUS operation commands')
+    .addSubcommand(s => s.setName('create').setDescription('Create a new operation'))
+    .addSubcommand(s => s.setName('end').setDescription('End an operation')
+      .addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true)))
+    .addSubcommand(s => s.setName('delete').setDescription('Admin: Delete an operation')
+      .addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true)))
+    .addSubcommandGroup(g => g.setName('admin').setDescription('Manage Admin roles')
+      .addSubcommand(s => s.setName('grant').setDescription('Grant admin to a role').addRoleOption(o => o.setName('role').setDescription('Role').setRequired(true)))
+      .addSubcommand(s => s.setName('revoke').setDescription('Revoke admin from a role').addRoleOption(o => o.setName('role').setDescription('Role').setRequired(true))))
+    .addSubcommandGroup(g => g.setName('creator').setDescription('Manage Creator roles')
+      .addSubcommand(s => s.setName('grant').setDescription('Grant creator to a role').addRoleOption(o => o.setName('role').setDescription('Role').setRequired(true)))
+      .addSubcommand(s => s.setName('revoke').setDescription('Revoke creator from a role').addRoleOption(o => o.setName('role').setDescription('Role').setRequired(true))))
+    .addSubcommandGroup(g => g.setName('tactical').setDescription('Manage Tactical roles')
+      .addSubcommand(s => s.setName('add').setDescription('Add a tactical role').addStringOption(o => o.setName('name').setDescription('Role name').setRequired(true)))
+      .addSubcommand(s => s.setName('remove').setDescription('Remove a tactical role').addStringOption(o => o.setName('name').setDescription('Role name').setRequired(true)))
+      .addSubcommand(s => s.setName('list').setDescription('List tactical roles')))
+    .addSubcommandGroup(g => g.setName('template').setDescription('Manage Mission templates')
+      .addSubcommand(s => s.setName('add').setDescription('Admin: Create a template'))
+      .addSubcommand(s => s.setName('suggest').setDescription('Suggest a template for approval'))
+      .addSubcommand(s => s.setName('remove').setDescription('Delete a template').addIntegerOption(o => o.setName('index').setDescription('Template index').setRequired(true)))
+      .addSubcommand(s => s.setName('list').setDescription('List all templates')))
+    .addSubcommandGroup(g => g.setName('commendation').setDescription('Manage the Commendation Registry')
+      .addSubcommand(s => s.setName('add').setDescription('Add a commendation')
+        .addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true))
+        .addStringOption(o => o.setName('reqs').setDescription('Criteria').setRequired(true)))
+      .addSubcommand(s => s.setName('remove').setDescription('Remove a commendation')
+        .addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true)))
+      .addSubcommand(s => s.setName('list').setDescription('List commendations')))
+    .addSubcommand(s => s.setName('set_channel').setDescription('Set the default ops channel')
+      .addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
+    .addSubcommand(s => s.setName('set_logs_channel').setDescription('Set the logs channel')
+      .addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
+    .addSubcommand(s => s.setName('set_announcement_channel').setDescription('Set the announcements channel')
+      .addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
+    .addSubcommand(s => s.setName('log').setDescription('Send a manual log entry')
+      .addStringOption(o => o.setName('message').setDescription('Log content').setRequired(true)))
+    .addSubcommand(s => s.setName('stats').setDescription('View operator statistics')
+      .addUserOption(o => o.setName('target').setDescription('User to view')))
+    .addSubcommand(s => s.setName('settings').setDescription('Configure ARCUS settings'))
+    .addSubcommand(s => s.setName('aar').setDescription('File an After Action Report')
+      .addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true))
+      .addStringOption(o => o.setName('report').setDescription('Mission summary').setRequired(true)))
+    .addSubcommand(s => s.setName('profile').setDescription('View an operator service record')
+      .addUserOption(o => o.setName('target').setDescription('User to view')))
+    .addSubcommand(s => s.setName('award').setDescription('Admin: Award a medal')
+      .addUserOption(o => o.setName('target').setDescription('Operator').setRequired(true))
+      .addStringOption(o => o.setName('medal').setDescription('Medal name').setRequired(true)))
+    .addSubcommand(s => s.setName('leaderboard').setDescription('View top operators'))
+    .addSubcommand(s => s.setName('clear_stats').setDescription('Admin: Wipe all attendance statistics'));
+}
+
 // ─── Discord Client ───────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
@@ -307,58 +361,31 @@ client.once(Events.ClientReady, async () => {
   console.log(`ARCUS ready: ${client.user.tag}`);
   client.user.setActivity('Operational Logs', { type: ActivityType.Watching });
 
-  // Register slash commands
+  // ─── Command Registration ─────────────────────────────────────────────────
   const rest = new REST({ version: '10' }).setToken(TOKEN);
-
-  const commandData = new SlashCommandBuilder()
-    .setName('op')
-    .setDescription('ARCUS operation commands')
-    // FIX 1: /op create was missing from command registration — added here
-    .addSubcommand(s => s.setName('create').setDescription('Create a new operation'))
-    .addSubcommand(s => s.setName('end').setDescription('End an operation').addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true)))
-    .addSubcommand(s => s.setName('delete').setDescription('Admin: Delete an operation').addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true)))
-    .addSubcommandGroup(g => g.setName('admin').setDescription('Manage Admin roles')
-      .addSubcommand(s => s.setName('grant').setDescription('Grant admin to a role').addRoleOption(o => o.setName('role').setDescription('Role').setRequired(true)))
-      .addSubcommand(s => s.setName('revoke').setDescription('Revoke admin from a role').addRoleOption(o => o.setName('role').setDescription('Role').setRequired(true))))
-    .addSubcommandGroup(g => g.setName('creator').setDescription('Manage Creator roles')
-      .addSubcommand(s => s.setName('grant').setDescription('Grant creator to a role').addRoleOption(o => o.setName('role').setDescription('Role').setRequired(true)))
-      .addSubcommand(s => s.setName('revoke').setDescription('Revoke creator from a role').addRoleOption(o => o.setName('role').setDescription('Role').setRequired(true))))
-    .addSubcommandGroup(g => g.setName('tactical').setDescription('Manage Tactical roles')
-      .addSubcommand(s => s.setName('add').setDescription('Add a tactical role').addStringOption(o => o.setName('name').setDescription('Role name').setRequired(true)))
-      .addSubcommand(s => s.setName('remove').setDescription('Remove a tactical role').addStringOption(o => o.setName('name').setDescription('Role name').setRequired(true)))
-      .addSubcommand(s => s.setName('list').setDescription('List tactical roles')))
-    .addSubcommandGroup(g => g.setName('template').setDescription('Manage Mission templates')
-      .addSubcommand(s => s.setName('add').setDescription('Admin: Create a template'))
-      .addSubcommand(s => s.setName('suggest').setDescription('Suggest a template for approval'))
-      .addSubcommand(s => s.setName('remove').setDescription('Delete a template').addIntegerOption(o => o.setName('index').setDescription('Template index').setRequired(true)))
-      .addSubcommand(s => s.setName('list').setDescription('List all templates')))
-    .addSubcommandGroup(g => g.setName('commendation').setDescription('Manage the Commendation Registry')
-      .addSubcommand(s => s.setName('add').setDescription('Add a commendation').addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true)).addStringOption(o => o.setName('reqs').setDescription('Criteria').setRequired(true)))
-      .addSubcommand(s => s.setName('remove').setDescription('Remove a commendation').addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true)))
-      .addSubcommand(s => s.setName('list').setDescription('List commendations')))
-    .addSubcommand(s => s.setName('set_channel').setDescription('Set the default ops channel').addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
-    .addSubcommand(s => s.setName('set_logs_channel').setDescription('Set the logs channel').addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
-    .addSubcommand(s => s.setName('set_announcement_channel').setDescription('Set the announcements channel').addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
-    .addSubcommand(s => s.setName('log').setDescription('Send a manual log entry').addStringOption(o => o.setName('message').setDescription('Log content').setRequired(true)))
-    .addSubcommand(s => s.setName('stats').setDescription('View operator statistics').addUserOption(o => o.setName('target').setDescription('User to view')))
-    .addSubcommand(s => s.setName('settings').setDescription('Configure ARCUS settings'))
-    .addSubcommand(s => s.setName('aar').setDescription('File an After Action Report').addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true)).addStringOption(o => o.setName('report').setDescription('Mission summary').setRequired(true)))
-    .addSubcommand(s => s.setName('profile').setDescription('View an operator service record').addUserOption(o => o.setName('target').setDescription('User to view')))
-    .addSubcommand(s => s.setName('award').setDescription('Admin: Award a medal').addUserOption(o => o.setName('target').setDescription('Operator').setRequired(true)).addStringOption(o => o.setName('medal').setDescription('Medal name').setRequired(true)))
-    .addSubcommand(s => s.setName('leaderboard').setDescription('View top operators'))
-    .addSubcommand(s => s.setName('clear_stats').setDescription('Admin: Wipe all attendance statistics'));
+  const commandJSON = buildCommandData().toJSON();
 
   try {
-    const guilds = await client.guilds.fetch().then(gs => gs.map(g => g.id)).catch(() => []);
-    if (!guilds.length) { console.warn('ARCUS: Not in any guilds — command sync skipped.'); }
+    // Register globally — shows up in all guilds and DMs
+    console.log('ARCUS: Registering slash commands globally...');
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [commandJSON] });
+    console.log('ARCUS: Global slash commands registered successfully.');
+
+    // Also register per-guild for instant propagation
+    const guilds = client.guilds.cache.map(g => g.id);
+    console.log(`ARCUS: Found ${guilds.length} guild(s). Syncing per-guild commands...`);
 
     for (const gId of guilds) {
-      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gId), { body: [commandData.toJSON()] })
-        .catch(err => console.error(`ARCUS: Sync failed for guild ${gId}:`, err.message));
+      try {
+        await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gId), { body: [commandJSON] });
+        console.log(`ARCUS: Commands synced to guild ${gId}`);
+      } catch (err) {
+        console.error(`ARCUS: Failed to sync commands to guild ${gId}:`, err.message);
+      }
     }
-    console.log('ARCUS: Slash commands synchronized across all available guilds.');
+    console.log('ARCUS: Command sync complete.');
   } catch (error) {
-    console.error('Command registration error:', error);
+    console.error('ARCUS: Command registration failed:', error);
   }
 
   // ─── Reminder loop ─────────────────────────────────────────────────────────
@@ -399,7 +426,6 @@ client.once(Events.ClientReady, async () => {
 
 // ─── Interaction Handler ──────────────────────────────────────────────────────
 client.on(Events.InteractionCreate, async (interaction) => {
-  // FIX 2: Track whether we've deferred so the catch block can respond correctly
   let isDeferred = false;
 
   try {
@@ -445,8 +471,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const opId = interaction.options.getString('id');
         const op   = getOpById(data, opId);
-        if (!op)         return interaction.reply({ content: 'ARCUS: Operation not found.', flags: [MessageFlags.Ephemeral] });
-        if (op.locked)   return interaction.reply({ content: 'ARCUS: Operation already ended.', flags: [MessageFlags.Ephemeral] });
+        if (!op)       return interaction.reply({ content: 'ARCUS: Operation not found.', flags: [MessageFlags.Ephemeral] });
+        if (op.locked) return interaction.reply({ content: 'ARCUS: Operation already ended.', flags: [MessageFlags.Ephemeral] });
 
         op.locked = true;
         data.operations[opId] = op;
@@ -457,7 +483,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           try {
             const guild = await client.guilds.fetch(op.guildId);
             await guild.scheduledEvents.delete(op.scheduledEventId);
-          } catch { /* event may already be gone */ }
+          } catch { }
         }
 
         try {
@@ -493,7 +519,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           const ch  = await client.channels.fetch(op.channelId);
           const msg = await ch.messages.fetch(op.messageId);
           await msg.delete();
-        } catch { /* message may be gone */ }
+        } catch { }
 
         if (op.scheduledEventId) {
           try { const guild = await client.guilds.fetch(op.guildId); await guild.scheduledEvents.delete(op.scheduledEventId); } catch { }
@@ -589,7 +615,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction.reply({ content: 'ARCUS: Invalid template index.', flags: [MessageFlags.Ephemeral] });
         }
 
-        // list
         const list = (gc.templates || []).map((t, i) => `\`[${i}]\` **${t.name}**: ${t.description.substring(0, 40)}...`).join('\n') || '_No templates._';
         return interaction.reply({ content: `**Mission Templates:**\n${list}`, flags: [MessageFlags.Ephemeral] });
       }
@@ -616,7 +641,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           saveConfig();
           return interaction.reply({ content: `ARCUS: Commendation **${name}** removed.` });
         }
-        // list
         const list = gc.commendations.map(c => `• **${c.name}**: ${c.requirements}`).join('\n') || '_None registered._';
         return interaction.reply({ embeds: [new EmbedBuilder().setTitle('🎖️ Commendation Registry').setDescription(list).setColor(0xFFD700)] });
       }
@@ -681,14 +705,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // ── /op stats ──────────────────────────────────────────────────────────
       if (sub === 'stats') {
-        const target       = interaction.options.getUser('target') || interaction.user;
-        // FIX: defer to avoid 3s timeout; force-fetch so role cache is fresh
         await interaction.deferReply();
         isDeferred = true;
 
-        const target2      = interaction.options.getUser('target') || interaction.user;
-        const targetMember = await interaction.guild.members.fetch({ user: target2.id, force: true }).catch(() => null);
-        const stats        = ensureUserStats(data, target2.id);
+        const target       = interaction.options.getUser('target') || interaction.user;
+        const targetMember = await interaction.guild.members.fetch({ user: target.id, force: true }).catch(() => null);
+        const stats        = ensureUserStats(data, target.id);
         const currentRank  = getRank(targetMember, stats);
         const rankIndex    = ranks.indexOf(currentRank);
         const nextRank     = rankIndex >= 0 && rankIndex < ranks.length - 1 ? ranks[rankIndex + 1] : null;
@@ -696,12 +718,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.editReply({
           embeds: [new EmbedBuilder()
-            .setTitle(`ARCUS Record: ${targetMember?.nickname || target2.username}`)
-            .setThumbnail(target2.displayAvatarURL({ size: 256 }))
+            .setTitle(`ARCUS Record: ${targetMember?.nickname || target.username}`)
+            .setThumbnail(target.displayAvatarURL({ size: 256 }))
             .addFields(
-              { name: 'Rank',           value: `**${currentRank.name}**`, inline: true },
-              { name: 'Ops to Next',    value: opsToNext, inline: true },
-              { name: 'Ops Attended',   value: `\`${stats.attended}\``, inline: true }
+              { name: 'Rank',         value: `**${currentRank.name}**`, inline: true },
+              { name: 'Ops to Next',  value: opsToNext, inline: true },
+              { name: 'Ops Attended', value: `\`${stats.attended}\``, inline: true }
             ).setColor(0x5865f2)]
         });
       }
@@ -729,12 +751,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // ── /op profile ────────────────────────────────────────────────────────
       if (sub === 'profile') {
-        // FIX: Defer first — members.fetch() is an API call that can exceed the 3s window
         await interaction.deferReply();
         isDeferred = true;
 
         const targetUser   = interaction.options.getUser('target') || interaction.user;
-        // FIX: force: true bypasses the stale member cache so roles are always up to date
         const targetMember = await interaction.guild.members.fetch({ user: targetUser.id, force: true }).catch(() => null);
         const displayName  = targetMember?.nickname || targetUser.displayName || targetUser.username;
         const stats        = ensureUserStats(data, targetUser.id);
@@ -753,8 +773,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const opsNeeded = Math.max(0, nextRank.minAttended - stats.attended);
             opsToNext = `\`${opsNeeded}\``;
             if (opsNeeded > 0) reqs.push(`${opsNeeded} Ops`);
-            if (nextRank.requireBCT && !stats.passedBCT)           reqs.push('BCT');
-            if (nextRank.minLed && stats.ledOps < nextRank.minLed)  reqs.push(`${nextRank.minLed - stats.ledOps} Led Ops`);
+            if (nextRank.requireBCT && !stats.passedBCT)                       reqs.push('BCT');
+            if (nextRank.minLed && stats.ledOps < nextRank.minLed)             reqs.push(`${nextRank.minLed - stats.ledOps} Led Ops`);
             if (nextRank.minRecruits && stats.recruits < nextRank.minRecruits) reqs.push(`${nextRank.minRecruits - stats.recruits} Recruits`);
             progressText = `*Next: ${nextRank.name} (${reqs.length > 0 ? reqs.join(', ') : 'Eligible'})*`;
           }
@@ -762,10 +782,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const councilIdx     = ranks.findIndex(r => r.name === 'Council');
         const isCouncilAbove = rankIndex >= councilIdx;
-
-        // FIX: displayAvatarURL({ dynamic: true }) was removed in discord.js v14.
-        // Use size option and let discord.js handle animated vs static automatically.
-        const avatarURL = targetUser.displayAvatarURL({ size: 256 });
+        const avatarURL      = targetUser.displayAvatarURL({ size: 256 });
 
         const embed = new EmbedBuilder()
           .setTitle(`ARCUS Service Record: ${displayName}`)
@@ -804,7 +821,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           if (row.components.length) components.push(row);
         }
 
-        // FIX: use editReply since we deferred
         return interaction.editReply({ embeds: [embed], components });
       }
 
@@ -813,7 +829,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const entries = Object.entries(data.users);
         if (!entries.length) return interaction.reply({ content: 'ARCUS: No data yet.', flags: [MessageFlags.Ephemeral] });
 
-        // FIX: defer first — multiple member fetches can exceed the 3s window
         await interaction.deferReply();
         isDeferred = true;
 
@@ -826,7 +841,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         for (let i = 0; i < top.length; i++) {
           const e      = top[i];
           const user   = await client.users.fetch(e.id).catch(() => ({ username: 'Unknown' }));
-          // FIX: force: true ensures roles are loaded for accurate rank display
           const member = await interaction.guild.members.fetch({ user: e.id, force: true }).catch(() => null);
           const name   = member?.nickname || user.username;
           const medal  = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `\`${i+1}.\``;
@@ -949,16 +963,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ embeds: [new EmbedBuilder().setTitle('Manual Control Required').setDescription(helpText).setColor(0xFFFF00)], flags: [MessageFlags.Ephemeral] });
       }
 
-      // ── Template approve/reject ────────────────────────────────────────────
+      // ── Template approve/reject ───────────────────────────────────────────
       if (namespace === 'op' && action === 'tmpl_approve') {
         if (!isAuthorized(interaction.member, interaction.guildId))
           return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
-        const embed = interaction.message.embeds[0];
-        const name  = embed.title.replace('Template Suggestion: ', '');
-        const desc  = embed.fields.find(f => f.name === 'Briefing')?.value  || '';
-        const pings = embed.fields.find(f => f.name === 'Pings')?.value     || '';
-        const reminderRaw = embed.fields.find(f => f.name === 'Reminder')?.value || '30';
-        const reminder = reminderRaw.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+        const embed       = interaction.message.embeds[0];
+        const name        = embed.title.replace('Template Suggestion: ', '');
+        const desc        = embed.fields.find(f => f.name === 'Briefing')?.value  || '';
+        const pings       = embed.fields.find(f => f.name === 'Pings')?.value     || '';
+        const reminderRaw = embed.fields.find(f => f.name === 'Reminder')?.value  || '30';
+        const reminder    = reminderRaw.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
 
         const gc = getGuildConfig(interaction.guildId);
         gc.templates.push({ name, description: desc, pings, reminder });
@@ -1018,12 +1032,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const currentRank = getRank(member, stats);
         const nextRank    = ranks[ranks.indexOf(currentRank) + 1];
-        if (!nextRank) return interaction.followUp({ content: 'Operator is at max rank.', flags: [MessageFlags.Ephemeral] });
+        if (!nextRank)          return interaction.followUp({ content: 'Operator is at max rank.', flags: [MessageFlags.Ephemeral] });
         if (nextRank.appointed) return interaction.followUp({ content: `**${nextRank.name}** is an appointed position — assign manually.`, flags: [MessageFlags.Ephemeral] });
 
-        if (nextRank.name === 'Sergeant' && !stats.passedBCT)        return interaction.followUp({ content: 'Ineligible: BCT not passed.', flags: [MessageFlags.Ephemeral] });
-        if (stats.attended < nextRank.minAttended)                    return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minAttended} ops (current: ${stats.attended}).`, flags: [MessageFlags.Ephemeral] });
-        if (nextRank.minLed && stats.ledOps < nextRank.minLed)        return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minLed} led ops (current: ${stats.ledOps}).`, flags: [MessageFlags.Ephemeral] });
+        if (nextRank.name === 'Sergeant' && !stats.passedBCT)              return interaction.followUp({ content: 'Ineligible: BCT not passed.', flags: [MessageFlags.Ephemeral] });
+        if (stats.attended < nextRank.minAttended)                          return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minAttended} ops (current: ${stats.attended}).`, flags: [MessageFlags.Ephemeral] });
+        if (nextRank.minLed && stats.ledOps < nextRank.minLed)             return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minLed} led ops (current: ${stats.ledOps}).`, flags: [MessageFlags.Ephemeral] });
         if (nextRank.minRecruits && stats.recruits < nextRank.minRecruits) return interaction.followUp({ content: `Ineligible: Needs ${nextRank.minRecruits} recruits (current: ${stats.recruits}).`, flags: [MessageFlags.Ephemeral] });
 
         const newRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === nextRank.name.toLowerCase());
@@ -1045,7 +1059,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       // ── AAR trigger ───────────────────────────────────────────────────────
-      // FIX 3: aar_trigger runs in DM — no guildId/member. Show the modal directly.
       if (namespace === 'op' && action === 'aar_trigger') {
         const data = loadData();
         const op   = getOpById(data, targetId);
@@ -1068,21 +1081,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       const gc = getGuildConfig(op.guildId);
 
-      // FIX 4: role button must NOT deferUpdate — it needs to reply ephemerally with a select menu.
-      // join/leave/squad CAN deferUpdate since they just update the embed.
-      // We now handle each action's defer individually instead of one blanket deferUpdate.
-
       if (action === 'join') {
-        // Guard checks BEFORE deferring so we can reply ephemerally if needed
-        if (findUserSquad(op, interaction.user.id)) {
+        if (findUserSquad(op, interaction.user.id))
           return interaction.reply({ content: 'ARCUS: You are already in a squad.', flags: [MessageFlags.Ephemeral] });
-        }
-        const squad = op.squads.find(s => s.members.length < (gc.maxSquadSize || 4));
-        if (!squad) {
-          return interaction.reply({ content: 'ARCUS: All squads are full.', flags: [MessageFlags.Ephemeral] });
-        }
 
-        // Safe to defer now — we know we'll succeed
+        const squad = op.squads.find(s => s.members.length < (gc.maxSquadSize || 4));
+        if (!squad)
+          return interaction.reply({ content: 'ARCUS: All squads are full.', flags: [MessageFlags.Ephemeral] });
+
         await interaction.deferUpdate();
         isDeferred = true;
 
@@ -1098,9 +1104,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       if (action === 'leave') {
         const squad = findUserSquad(op, interaction.user.id);
-        if (!squad) {
+        if (!squad)
           return interaction.reply({ content: 'ARCUS: You are not in this operation.', flags: [MessageFlags.Ephemeral] });
-        }
 
         await interaction.deferUpdate();
         isDeferred = true;
@@ -1116,7 +1121,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (action === 'role') {
-        // FIX 5: role must reply (not deferUpdate) so the ephemeral select menu is visible
         const selectable = op.selectableRoles?.length ? op.selectableRoles : (gc.selectableRoles || ['Point Man', 'Overwatch', 'Medic', 'Demolitions']);
         return interaction.reply({
           content: 'ARCUS: Select your role.',
@@ -1128,20 +1132,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (action === 'squad') {
-        if (!canCreateSquad(interaction.member, op.guildId)) {
+        if (!canCreateSquad(interaction.member, op.guildId))
           return interaction.reply({ content: 'ARCUS: You lack squad creation permission.', flags: [MessageFlags.Ephemeral] });
-        }
 
         const maxSize = gc.maxSquadSize || 4;
         const allFull = op.squads.every(s => s.members.length >= maxSize);
-        if (!allFull) {
+        if (!allFull)
           return interaction.reply({ content: `ARCUS: All existing squads must be full (${maxSize}) before creating a new one.`, flags: [MessageFlags.Ephemeral] });
-        }
 
         const nextName = getNextSquadName(op);
-        if (!nextName) {
+        if (!nextName)
           return interaction.reply({ content: 'ARCUS: Maximum squads reached.', flags: [MessageFlags.Ephemeral] });
-        }
 
         await interaction.deferUpdate();
         isDeferred = true;
@@ -1193,7 +1194,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const squad = findUserSquad(op, interaction.user.id);
         if (!squad) return interaction.reply({ content: 'ARCUS: Join the operation first.', flags: [MessageFlags.Ephemeral] });
 
-        // FIX 6: defer the update before processing, then followUp
         await interaction.deferUpdate();
         isDeferred = true;
 
@@ -1214,18 +1214,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.followUp({ content: `ARCUS: Role set to **${selected}**.`, flags: [MessageFlags.Ephemeral] });
       }
 
-      // FIX 7: attendance runs in DM — interaction.member is null.
-      // Verify by creatorId only (already correct in original), but fix the broken isAuthorized call.
       if (parts[1] === 'attendance') {
         const opId = parts[2];
         const data = loadData();
         const op   = getOpById(data, opId);
         if (!op) return interaction.reply({ content: 'ARCUS: Operation not found.' });
 
-        // In DMs, interaction.member is null — only the creator can confirm attendance via DM
-        if (interaction.user.id !== op.creatorId) {
+        if (interaction.user.id !== op.creatorId)
           return interaction.reply({ content: 'ARCUS: Only the operation creator can confirm attendance.' });
-        }
 
         await interaction.deferUpdate();
         isDeferred = true;
@@ -1266,7 +1262,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     else if (interaction.isModalSubmit()) {
       const parts = interaction.customId.split(':');
 
-      // ── Template add ───────────────────────────────────────────────────────
       if (interaction.customId === 'op:template:add_modal') {
         const name        = interaction.fields.getTextInputValue('tmpl_name');
         const description = interaction.fields.getTextInputValue('tmpl_desc');
@@ -1281,7 +1276,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ content: `ARCUS: Template **${name}** registered.`, flags: [MessageFlags.Ephemeral] });
       }
 
-      // ── Template suggest ──────────────────────────────────────────────────
       if (interaction.customId === 'op:template:suggest_modal') {
         const name     = interaction.fields.getTextInputValue('tmpl_name');
         const desc     = interaction.fields.getTextInputValue('tmpl_desc');
@@ -1308,7 +1302,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ content: 'ARCUS: Template submitted for review.', flags: [MessageFlags.Ephemeral] });
       }
 
-      // ── Settings: roles ───────────────────────────────────────────────────
       if (interaction.customId === 'settings:modal:roles') {
         const gc     = getGuildConfig(interaction.guildId);
         const add    = (safeGetField(interaction, 'add_role')    || '').trim();
@@ -1328,7 +1321,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ content: feedback.length ? `Registry Updated: ${feedback.join(', ')}` : 'No changes made.', flags: [MessageFlags.Ephemeral] });
       }
 
-      // ── Settings: general ─────────────────────────────────────────────────
       if (interaction.customId === 'settings:modal:gen') {
         const gc      = getGuildConfig(interaction.guildId);
         const size    = parseInt(interaction.fields.getTextInputValue('max_size'));
@@ -1345,9 +1337,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ content: 'ARCUS: General settings updated.', flags: [MessageFlags.Ephemeral] });
       }
 
-      // ── AAR ───────────────────────────────────────────────────────────────
-      // FIX 8: AAR modal can be submitted from DM (via aar_trigger button), so
-      // interaction.guildId may be null. We fetch the guild from op.guildId instead.
       if (parts[1] === 'modal' && parts[2] === 'aar') {
         const opId = parts[3];
         const data = loadData();
@@ -1362,37 +1351,33 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ content: `✅ AAR filed for **${op.name}**. Board updated.` });
       }
 
-      // ── Create operation ──────────────────────────────────────────────────
       if (parts[1] === 'modal' && parts[2] === 'submit') {
         const guildId   = parts[3];
         const channelId = parts[4];
 
-        const name          = interaction.fields.getTextInputValue('op_name');
-        const time          = interaction.fields.getTextInputValue('op_time');
-        const description   = interaction.fields.getTextInputValue('op_description');
-        const pingRaw       = safeGetField(interaction, 'op_pings') || '';
-        const reminderRaw   = safeGetField(interaction, 'op_reminder') || '';
+        const name            = interaction.fields.getTextInputValue('op_name');
+        const time            = interaction.fields.getTextInputValue('op_time');
+        const description     = interaction.fields.getTextInputValue('op_description');
+        const pingRaw         = safeGetField(interaction, 'op_pings') || '';
+        const reminderRaw     = safeGetField(interaction, 'op_reminder') || '';
         const reminderMinutes = reminderRaw.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n > 0);
 
         let channel;
         try { channel = await client.channels.fetch(channelId); } catch { }
         if (!channel?.guild) return interaction.reply({ content: 'ARCUS: Target channel not found.' });
 
-        const guild      = channel.guild;
-        const gc         = getGuildConfig(guildId);
-        const data       = loadData();
+        const guild = channel.guild;
+        const gc    = getGuildConfig(guildId);
+        const data  = loadData();
 
-        // Resolve pings
         let pingString = '';
         if (pingRaw) {
-          const mentions = pingRaw.split(',').map(s => s.trim()).map(target => {
+          pingString = pingRaw.split(',').map(s => s.trim()).map(target => {
             const role = guild.roles.cache.find(r => r.name.toLowerCase() === target.toLowerCase() || r.id === target);
             return role ? `<@&${role.id}>` : target;
-          });
-          pingString = mentions.join(' ');
+          }).join(' ');
         }
 
-        // Create Discord scheduled event
         let scheduledEventId = null;
         const startTimeMs    = parseOpTime(time);
         if (!isNaN(startTimeMs) && startTimeMs > Date.now()) {
@@ -1414,25 +1399,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const opId = generateOpId(data);
         const op = {
-          id:                opId,
+          id:                 opId,
           channelId,
-          messageId:         null,
-          guildId:           channel.guildId,
-          creatorId:         interaction.user.id,
-          creatorTag:        interaction.user.tag,
+          messageId:          null,
+          guildId:            channel.guildId,
+          creatorId:          interaction.user.id,
+          creatorTag:         interaction.user.tag,
           name,
           time,
           description,
-          mapUrl:            null,
+          mapUrl:             null,
           scheduledEventId,
           reminderMinutes,
-          remindersSent:     [],
-          locked:            false,
+          remindersSent:      [],
+          locked:             false,
           attendanceRecorded: false,
-          selectableRoles:   gc.selectableRoles,
-          squads:            [{ name: 'Alpha', members: [] }],
-          participants:      [],
-          attendance:        {}
+          selectableRoles:    gc.selectableRoles,
+          squads:             [{ name: 'Alpha', members: [] }],
+          participants:       [],
+          attendance:         {}
         };
 
         const msg = await channel.send({ content: pingString || undefined, embeds: [buildOperationEmbed(op)], components: [buildActionRow(op)] });
@@ -1444,7 +1429,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ content: `ARCUS: Operation **${name}** posted to <#${channelId}>.\nID: \`${opId}\` | Reminders: \`${reminderDisplay}\`` });
       }
 
-      // ── Profile edit ──────────────────────────────────────────────────────
       if (parts[1] === 'modal' && parts[2] === 'prof_edit') {
         const targetUserId = parts[3];
         const data         = loadData();
@@ -1477,21 +1461,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
     console.error('ARCUS: Interaction Error:', error);
     try {
       const errMsg = { content: 'ARCUS Internal Error: Failed to process interaction.', flags: [MessageFlags.Ephemeral] };
-      // FIX 9: If already deferred, use followUp — not reply — to avoid "already replied" crash
       if (isDeferred) {
         await interaction.followUp(errMsg).catch(() => {});
       } else if (!interaction.replied) {
         await interaction.reply(errMsg).catch(() => {});
       }
-    } catch { /* silently absorb secondary errors */ }
+    } catch { }
   }
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 client.login(TOKEN).catch(err => {
   console.error('ARCUS Critical: Failed to login to Discord.');
-  if (err.message.includes('privileged intent')) {
+  if (err.message?.includes('privileged intent')) {
     console.error('ACTION REQUIRED: Enable "Server Members Intent" in the Discord Developer Portal.');
   }
   console.error('Error Details:', err);
 });
+ENDOFFILE
