@@ -554,9 +554,7 @@ function buildCommandData() {
       .addSubcommand(s => s.setName('remove').setDescription('Delete a template').addIntegerOption(o => o.setName('index').setDescription('Template index').setRequired(true)))
       .addSubcommand(s => s.setName('list').setDescription('List all templates')))
     .addSubcommandGroup(g => g.setName('commendation').setDescription('Manage the Commendation Registry')
-      .addSubcommand(s => s.setName('add').setDescription('Add a commendation')
-        .addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true))
-        .addStringOption(o => o.setName('reqs').setDescription('Criteria').setRequired(true)))
+      .addSubcommand(s => s.setName('add').setDescription('Add a commendation to the registry'))
       .addSubcommand(s => s.setName('remove').setDescription('Remove a commendation')
         .addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true)))
       .addSubcommand(s => s.setName('list').setDescription('List commendations')))
@@ -921,23 +919,37 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (sub === 'add') {
           if (!isAuthorized(interaction.member, interaction.guildId))
             return interaction.reply({ content: 'ARCUS: Admin required.', flags: [MessageFlags.Ephemeral] });
-          const name = interaction.options.getString('name');
-          const reqs = interaction.options.getString('reqs');
-          gc.commendations = gc.commendations.filter(c => c.name !== name);
-          gc.commendations.push({ name, requirements: reqs });
-          saveConfig();
-          return interaction.reply({ content: `ARCUS: Commendation **${name}** added.` });
+
+          const modal = new ModalBuilder()
+            .setCustomId('op:modal:commendation:add')
+            .setTitle('Add Commendation to Registry');
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_name').setLabel('Medal Name').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Medal of Valor')),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_desc').setLabel('Description / Purpose').setStyle(TextInputStyle.Paragraph).setRequired(true).setPlaceholder('Awarded for exceptional courage...')),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_reqs').setLabel('Requirements').setStyle(TextInputStyle.Paragraph).setRequired(true).setPlaceholder('Requires 10 successful deployments...')),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_emoji').setLabel('Emoji / Icon').setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. 🎖️ or :custom_medal:'))
+          );
+          return interaction.showModal(modal);
         }
         if (sub === 'remove') {
           if (!isAuthorized(interaction.member, interaction.guildId))
             return interaction.reply({ content: 'ARCUS: Admin required.', flags: [MessageFlags.Ephemeral] });
           const name = interaction.options.getString('name');
-          gc.commendations = gc.commendations.filter(c => c.name !== name);
+          gc.commendations = gc.commendations.filter(c => c.name.toLowerCase() !== name.toLowerCase());
           saveConfig();
           return interaction.reply({ content: `ARCUS: Commendation **${name}** removed.` });
         }
-        const list = gc.commendations.map(c => `• **${c.name}**: ${c.requirements}`).join('\n') || '_None registered._';
-        return interaction.reply({ embeds: [new EmbedBuilder().setTitle('🎖️ Commendation Registry').setDescription(list).setColor(0xFFD700)] });
+        const list = gc.commendations.map(c => {
+          const emoji = c.emoji ? `${c.emoji} ` : '';
+          return `### ${emoji}${c.name}\n**Purpose:** ${c.description}\n**Criteria:** ${c.requirements}`;
+        }).join('\n\n') || '_None registered._';
+
+        const embed = new EmbedBuilder()
+          .setTitle('🎖️ ARCUS Commendation Registry')
+          .setDescription(list)
+          .setColor(0xFFD700)
+          .setFooter({ text: 'Use /op award to recognize an operator' });
+        return interaction.reply({ embeds: [embed] });
       }
 
       // ── /op bct request ────────────────────────────────────────────────────
@@ -1221,18 +1233,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const target = interaction.options.getUser('target');
         const medal  = interaction.options.getString('medal');
-        const stats  = ensureUserStats(data, target.id);
-        stats.medals.push({ name: medal, date: new Date().toISOString().split('T')[0] });
-        saveData(data);
 
         const gc = getGuildConfig(interaction.guildId);
+        const registered = gc.commendations.find(c => c.name.toLowerCase() === medal.toLowerCase());
+        const medalName = registered ? registered.name : medal;
+        const emoji = registered?.emoji ? `${registered.emoji} ` : '';
+
+        const stats = ensureUserStats(data, target.id);
+        stats.medals.push({ name: medalName, date: new Date().toISOString().split('T')[0] });
+        saveData(data);
+
         if (gc.announcementChannelId) {
           const annCh = await interaction.guild.channels.fetch(gc.announcementChannelId).catch(() => null);
           if (annCh) {
-            await annCh.send({ embeds: [new EmbedBuilder().setTitle('🎖️ Commendation Issued').setDescription(`**${medal}** awarded to <@${target.id}> for outstanding service.`).setColor(0xFFD700).setTimestamp()] });
+            await annCh.send({ embeds: [new EmbedBuilder().setTitle('🎖️ Commendation Issued').setDescription(`${emoji}**${medalName}** awarded to <@${target.id}> for outstanding service.`).setColor(0xFFD700).setTimestamp()] });
           }
         }
-        return interaction.reply({ content: `🎖️ **${medal}** awarded to <@${target.id}>.` });
+        return interaction.reply({ content: `🎖️ **${medalName}** awarded to <@${target.id}>.` });
       }
 
       // ── /op profile ────────────────────────────────────────────────────────
@@ -1288,7 +1305,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
           embed.addFields({ name: 'Qualification Status', value: `BCT: ${stats.passedBCT ? '✅ Passed' : '❌ Pending'}\nNotes: ${stats.promotionNotes || '_None_'}` });
         }
         if (stats.medals?.length) {
-          embed.addFields({ name: 'Medals & Commendations', value: stats.medals.map(m => `• **${m.name}** (${m.date})`).join('\n') });
+          const gc = getGuildConfig(interaction.guildId);
+          const medalLines = stats.medals.map(m => {
+            const reg = gc.commendations.find(c => c.name.toLowerCase() === m.name.toLowerCase());
+            const emoji = reg?.emoji ? `${reg.emoji} ` : '• ';
+            return `${emoji}**${m.name}** (${m.date})`;
+          }).join('\n');
+          embed.addFields({ name: 'Medals & Commendations', value: medalLines });
         }
         if (isCouncilAbove) {
           embed.addFields({ name: 'Council Assignment', value: stats.councilNote || '_No assignment noted_' });
@@ -1891,6 +1914,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
         gc.templates.push({ name, description, pings, reminder });
         saveConfig();
         return interaction.reply({ content: `ARCUS: Template **${name}** registered.`, flags: [MessageFlags.Ephemeral] });
+      }
+
+      // ── Commendation add ───────────────────────────────────────────────────
+      if (interaction.customId === 'op:modal:commendation:add') {
+        const name  = interaction.fields.getTextInputValue('comm_name');
+        const desc  = interaction.fields.getTextInputValue('comm_desc');
+        const reqs  = interaction.fields.getTextInputValue('comm_reqs');
+        const emoji = safeGetField(interaction, 'comm_emoji') || '';
+
+        const gc = getGuildConfig(interaction.guildId);
+        if (!gc.commendations) gc.commendations = [];
+        
+        gc.commendations = gc.commendations.filter(c => c.name.toLowerCase() !== name.toLowerCase());
+        gc.commendations.push({ name, description: desc, requirements: reqs, emoji });
+        saveConfig();
+        return interaction.reply({ content: `ARCUS: Commendation **${name}** added to the registry.`, flags: [MessageFlags.Ephemeral] });
       }
 
       // ── Template suggest ──────────────────────────────────────────────────
