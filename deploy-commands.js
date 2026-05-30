@@ -61,6 +61,38 @@ function buildCommands() {
         .addSubcommand(sub => sub.setName('add').setDescription('Add a medal to the registry').addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true)).addStringOption(o => o.setName('reqs').setDescription('Criteria for award').setRequired(true)))
         .addSubcommand(sub => sub.setName('remove').setDescription('Remove a medal from the registry').addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true)))
         .addSubcommand(sub => sub.setName('list').setDescription('List all available commendations')))
+    .addSubcommandGroup(group =>
+      group.setName('bct')
+        .setDescription('Basic Combat Training')
+        .addSubcommand(sub => sub.setName('request').setDescription('Request BCT training')))
+    .addSubcommandGroup(group =>
+      group.setName('manage')
+        .setDescription('Operation management tools')
+        .addSubcommand(sub => sub.setName('list').setDescription('List active operations'))
+        .addSubcommand(sub => sub.setName('remind').setDescription('Send a manual operation reminder')
+          .addStringOption(opt => opt.setName('id').setDescription('Operation ID').setRequired(true))
+          .addStringOption(opt => opt.setName('message').setDescription('Optional reminder message').setRequired(false)))
+        .addSubcommand(sub => sub.setName('transfer').setDescription('Transfer operation ownership')
+          .addStringOption(opt => opt.setName('id').setDescription('Operation ID').setRequired(true))
+          .addUserOption(opt => opt.setName('target').setDescription('New operation creator').setRequired(true)))
+        .addSubcommand(sub => sub.setName('activity').setDescription('Combined activity and inactivity report'))
+        .addSubcommand(sub => sub.setName('approval_channel').setDescription('Set the operation approval channel')
+          .addChannelOption(opt => opt.setName('channel').setDescription('Approval channel').setRequired(true)))
+        .addSubcommand(sub => sub.setName('approval_toggle').setDescription('Enable or disable operation approval')
+          .addBooleanOption(opt => opt.setName('enabled').setDescription('Require approval before posting ops').setRequired(true))))
+    .addSubcommandGroup(group =>
+      group.setName('status')
+        .setDescription('Availability status')
+        .addSubcommand(sub => sub.setName('set').setDescription('Set your availability')
+          .addStringOption(opt => opt.setName('state').setDescription('Availability').setRequired(true)
+            .addChoices(
+              { name: 'Available', value: 'available' },
+              { name: 'Limited', value: 'limited' },
+              { name: 'Unavailable', value: 'unavailable' }
+            ))
+          .addStringOption(opt => opt.setName('note').setDescription('Optional note').setRequired(false)))
+        .addSubcommand(sub => sub.setName('view').setDescription('View availability')
+          .addUserOption(opt => opt.setName('target').setDescription('User to view').setRequired(false))))
     .addSubcommand(sub =>
       sub.setName('set_channel')
         .setDescription('Set the default channel for operations')
@@ -73,6 +105,14 @@ function buildCommands() {
       sub.setName('set_announcement_channel')
         .setDescription('Admin: Set the channel for promotions and commendations')
         .addChannelOption(opt => opt.setName('channel').setDescription('The channel for announcements').setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('set_bct_channel')
+        .setDescription('Admin: Set the channel for BCT requests')
+        .addChannelOption(opt => opt.setName('channel').setDescription('The channel for BCT requests').setRequired(true)))
+    .addSubcommand(sub =>
+      sub.setName('set_bct_role')
+        .setDescription('Admin: Set the BCT instructor role')
+        .addRoleOption(opt => opt.setName('role').setDescription('The BCT instructor role').setRequired(true)))
     .addSubcommand(sub =>
       sub.setName('log')
         .setDescription('Authorized: Send a manual entry to the logs channel')
@@ -102,6 +142,9 @@ function buildCommands() {
       sub.setName('leaderboard')
         .setDescription('View the top ARCUS operators'))
     .addSubcommand(sub =>
+      sub.setName('motm')
+        .setDescription('Show member of the month'))
+    .addSubcommand(sub =>
       sub.setName('clear_stats')
         .setDescription('Admin: Permanently wipe all attendance statistics'));
 
@@ -115,6 +158,16 @@ function getGuildIds() {
   if (!fs.existsSync(configPath)) return [];
   const config = fs.readJsonSync(configPath);
   return Object.keys(config.guilds || {});
+}
+
+function formatCommandOptions(command) {
+  if (!command?.options?.length) return 'no subcommands';
+  return command.options.map(option => {
+    if (option.options?.length) {
+      return `${option.name} (${option.options.map(sub => sub.name).join(', ')})`;
+    }
+    return option.name;
+  }).join(', ');
 }
 
 async function main() {
@@ -146,6 +199,8 @@ async function main() {
 
     const guildAfter = await rest.get(Routes.applicationGuildCommands(CLIENT_ID, guildId));
     console.log(`ARCUS: Guild ${guildId} commands after deploy: ${guildAfter.map(command => `/${command.name}`).join(', ') || 'none'}`);
+    const opCommand = guildAfter.find(command => command.name === 'op');
+    console.log(`ARCUS: Guild ${guildId} /op options: ${formatCommandOptions(opCommand)}`);
   }
 
   const globalAfter = await rest.get(Routes.applicationCommands(CLIENT_ID));
