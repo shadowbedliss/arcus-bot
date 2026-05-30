@@ -1,4 +1,4 @@
-﻿// ARCUS: Operations Management Bot
+// ARCUS: Operations Management Bot
 require('dotenv').config();
 const {
   Client,
@@ -312,6 +312,8 @@ client.once(Events.ClientReady, async () => {
   const commandData = new SlashCommandBuilder()
     .setName('op')
     .setDescription('ARCUS operation commands')
+    // FIX 1: /op create was missing from command registration — added here
+    .addSubcommand(s => s.setName('create').setDescription('Create a new operation'))
     .addSubcommand(s => s.setName('end').setDescription('End an operation').addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true)))
     .addSubcommand(s => s.setName('delete').setDescription('Admin: Delete an operation').addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true)))
     .addSubcommandGroup(g => g.setName('admin').setDescription('Manage Admin roles')
@@ -346,10 +348,9 @@ client.once(Events.ClientReady, async () => {
     .addSubcommand(s => s.setName('clear_stats').setDescription('Admin: Wipe all attendance statistics'));
 
   try {
-    // Ensure we fetch all guilds to have an accurate cache
     const guilds = await client.guilds.fetch().then(gs => gs.map(g => g.id)).catch(() => []);
     if (!guilds.length) { console.warn('ARCUS: Not in any guilds — command sync skipped.'); }
-    
+
     for (const gId of guilds) {
       await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gId), { body: [commandData.toJSON()] })
         .catch(err => console.error(`ARCUS: Sync failed for guild ${gId}:`, err.message));
@@ -397,6 +398,9 @@ client.once(Events.ClientReady, async () => {
 
 // ─── Interaction Handler ──────────────────────────────────────────────────────
 client.on(Events.InteractionCreate, async (interaction) => {
+  // FIX 2: Track whether we've deferred so the catch block can respond correctly
+  let isDeferred = false;
+
   try {
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -677,16 +681,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // ── /op stats ──────────────────────────────────────────────────────────
       if (sub === 'stats') {
         const target       = interaction.options.getUser('target') || interaction.user;
-        const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null);
-        const stats        = ensureUserStats(data, target.id);
+        // FIX: defer to avoid 3s timeout; force-fetch so role cache is fresh
+        await interaction.deferReply();
+        isDeferred = true;
+
+        const target2      = interaction.options.getUser('target') || interaction.user;
+        const targetMember = await interaction.guild.members.fetch({ user: target2.id, force: true }).catch(() => null);
+        const stats        = ensureUserStats(data, target2.id);
         const currentRank  = getRank(targetMember, stats);
-        const nextRank     = ranks[ranks.indexOf(currentRank) + 1] || null;
+        const rankIndex    = ranks.indexOf(currentRank);
+        const nextRank     = rankIndex >= 0 && rankIndex < ranks.length - 1 ? ranks[rankIndex + 1] : null;
         const opsToNext    = nextRank && !nextRank.appointed ? `\`${Math.max(0, nextRank.minAttended - stats.attended)}\`` : 'N/A';
 
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [new EmbedBuilder()
-            .setTitle(`ARCUS Record: ${targetMember?.nickname || target.username}`)
-            .setThumbnail(target.displayAvatarURL())
+            .setTitle(`ARCUS Record: ${targetMember?.nickname || target2.username}`)
+            .setThumbnail(target2.displayAvatarURL({ size: 256 }))
             .addFields(
               { name: 'Rank',           value: `**${currentRank.name}**`, inline: true },
               { name: 'Ops to Next',    value: opsToNext, inline: true },
@@ -718,12 +728,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // ── /op profile ────────────────────────────────────────────────────────
       if (sub === 'profile') {
+        // FIX: Defer first — members.fetch() is an API call that can exceed the 3s window
+        await interaction.deferReply();
+        isDeferred = true;
+
         const targetUser   = interaction.options.getUser('target') || interaction.user;
-        const targetMember = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+        // FIX: force: true bypasses the stale member cache so roles are always up to date
+        const targetMember = await interaction.guild.members.fetch({ user: targetUser.id, force: true }).catch(() => null);
         const displayName  = targetMember?.nickname || targetUser.displayName || targetUser.username;
         const stats        = ensureUserStats(data, targetUser.id);
         const currentRank  = getRank(targetMember, stats);
-        const nextRank     = ranks[ranks.indexOf(currentRank) + 1] || null;
+        const rankIndex    = ranks.indexOf(currentRank);
+        const nextRank     = rankIndex >= 0 && rankIndex < ranks.length - 1 ? ranks[rankIndex + 1] : null;
 
         let progressText = '*Max Rank Achieved*';
         let opsToNext    = 'N/A';
@@ -736,19 +752,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const opsNeeded = Math.max(0, nextRank.minAttended - stats.attended);
             opsToNext = `\`${opsNeeded}\``;
             if (opsNeeded > 0) reqs.push(`${opsNeeded} Ops`);
-            if (nextRank.requireBCT && !stats.passedBCT)          reqs.push('BCT');
-            if (nextRank.minLed && stats.ledOps < nextRank.minLed) reqs.push(`${nextRank.minLed - stats.ledOps} Led Ops`);
+            if (nextRank.requireBCT && !stats.passedBCT)           reqs.push('BCT');
+            if (nextRank.minLed && stats.ledOps < nextRank.minLed)  reqs.push(`${nextRank.minLed - stats.ledOps} Led Ops`);
             if (nextRank.minRecruits && stats.recruits < nextRank.minRecruits) reqs.push(`${nextRank.minRecruits - stats.recruits} Recruits`);
             progressText = `*Next: ${nextRank.name} (${reqs.length > 0 ? reqs.join(', ') : 'Eligible'})*`;
           }
         }
 
-        const councilIdx      = ranks.findIndex(r => r.name === 'Council');
-        const isCouncilAbove  = ranks.indexOf(currentRank) >= councilIdx;
+        const councilIdx     = ranks.findIndex(r => r.name === 'Council');
+        const isCouncilAbove = rankIndex >= councilIdx;
+
+        // FIX: displayAvatarURL({ dynamic: true }) was removed in discord.js v14.
+        // Use size option and let discord.js handle animated vs static automatically.
+        const avatarURL = targetUser.displayAvatarURL({ size: 256 });
 
         const embed = new EmbedBuilder()
           .setTitle(`ARCUS Service Record: ${displayName}`)
-          .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+          .setThumbnail(avatarURL)
           .addFields(
             { name: 'Rank',             value: `**${currentRank.name}**`, inline: true },
             { name: 'Ops to Next Rank', value: opsToNext, inline: true },
@@ -783,13 +803,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
           if (row.components.length) components.push(row);
         }
 
-        return interaction.reply({ embeds: [embed], components });
+        // FIX: use editReply since we deferred
+        return interaction.editReply({ embeds: [embed], components });
       }
 
       // ── /op leaderboard ────────────────────────────────────────────────────
       if (sub === 'leaderboard') {
         const entries = Object.entries(data.users);
         if (!entries.length) return interaction.reply({ content: 'ARCUS: No data yet.', flags: [MessageFlags.Ephemeral] });
+
+        // FIX: defer first — multiple member fetches can exceed the 3s window
+        await interaction.deferReply();
+        isDeferred = true;
 
         const top = entries
           .map(([id, s]) => ({ id, attended: s.attended || 0, stats: s }))
@@ -800,13 +825,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
         for (let i = 0; i < top.length; i++) {
           const e      = top[i];
           const user   = await client.users.fetch(e.id).catch(() => ({ username: 'Unknown' }));
-          const member = await interaction.guild.members.fetch(e.id).catch(() => null);
+          // FIX: force: true ensures roles are loaded for accurate rank display
+          const member = await interaction.guild.members.fetch({ user: e.id, force: true }).catch(() => null);
           const name   = member?.nickname || user.username;
           const medal  = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `\`${i+1}.\``;
           text += `${medal} **${name}** — ${getRank(member, e.stats).name} — \`${e.attended} ops\`\n`;
         }
 
-        return interaction.reply({ embeds: [new EmbedBuilder().setTitle('🏆 ARCUS Operational Leaderboard').setDescription(text).setColor(0xFFA500).setFooter({ text: 'Top 10 by attendance' })] });
+        return interaction.editReply({ embeds: [new EmbedBuilder().setTitle('🏆 ARCUS Operational Leaderboard').setDescription(text).setColor(0xFFA500).setFooter({ text: 'Top 10 by attendance' })] });
       }
 
       // ── /op clear_stats ────────────────────────────────────────────────────
@@ -982,6 +1008,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!isAuthorized(interaction.member, interaction.guildId))
           return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
         await interaction.deferUpdate();
+        isDeferred = true;
 
         const data   = loadData();
         const stats  = ensureUserStats(data, targetId);
@@ -1017,10 +1044,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       // ── AAR trigger ───────────────────────────────────────────────────────
+      // FIX 3: aar_trigger runs in DM — no guildId/member. Show the modal directly.
       if (namespace === 'op' && action === 'aar_trigger') {
         const data = loadData();
         const op   = getOpById(data, targetId);
-        if (!op) return interaction.reply({ content: 'ARCUS: Operation not found.', flags: [MessageFlags.Ephemeral] });
+        if (!op) return interaction.reply({ content: 'ARCUS: Operation not found.' });
         const modal = new ModalBuilder().setCustomId(`op:modal:aar:${targetId}`).setTitle(`AAR: ${op.name}`);
         modal.addComponents(
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('aar_phases').setLabel('What happened (Phases / Timeline)').setStyle(TextInputStyle.Paragraph).setRequired(true)),
@@ -1037,15 +1065,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!op)       return interaction.reply({ content: 'ARCUS: Operation not found.', flags: [MessageFlags.Ephemeral] });
       if (op.locked) return interaction.reply({ content: 'ARCUS: Operation is locked.', flags: [MessageFlags.Ephemeral] });
 
-      await interaction.deferUpdate().catch(() => {});
       const gc = getGuildConfig(op.guildId);
 
+      // FIX 4: role button must NOT deferUpdate — it needs to reply ephemerally with a select menu.
+      // join/leave/squad CAN deferUpdate since they just update the embed.
+      // We now handle each action's defer individually instead of one blanket deferUpdate.
+
       if (action === 'join') {
-        if (findUserSquad(op, interaction.user.id))
-          return interaction.followUp({ content: 'ARCUS: You are already in a squad.', flags: [MessageFlags.Ephemeral] });
+        // Guard checks BEFORE deferring so we can reply ephemerally if needed
+        if (findUserSquad(op, interaction.user.id)) {
+          return interaction.reply({ content: 'ARCUS: You are already in a squad.', flags: [MessageFlags.Ephemeral] });
+        }
         const squad = op.squads.find(s => s.members.length < (gc.maxSquadSize || 4));
-        if (!squad)
-          return interaction.followUp({ content: 'ARCUS: All squads are full.', flags: [MessageFlags.Ephemeral] });
+        if (!squad) {
+          return interaction.reply({ content: 'ARCUS: All squads are full.', flags: [MessageFlags.Ephemeral] });
+        }
+
+        // Safe to defer now — we know we'll succeed
+        await interaction.deferUpdate();
+        isDeferred = true;
 
         const role = interaction.user.id === op.creatorId ? 'Squad Lead' : (gc.defaultRole || 'Point Man');
         squad.members.push({ userId: interaction.user.id, username: interaction.user.username, role });
@@ -1054,13 +1092,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
         data.operations[targetId] = op;
         saveData(data);
         await updateOperationMessage(client, op);
-        return interaction.followUp({ content: 'ARCUS: Operator assigned.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+        return interaction.followUp({ content: 'ARCUS: Operator assigned.', flags: [MessageFlags.Ephemeral] });
       }
 
       if (action === 'leave') {
         const squad = findUserSquad(op, interaction.user.id);
-        if (!squad)
-          return interaction.followUp({ content: 'ARCUS: You are not in this operation.', flags: [MessageFlags.Ephemeral] });
+        if (!squad) {
+          return interaction.reply({ content: 'ARCUS: You are not in this operation.', flags: [MessageFlags.Ephemeral] });
+        }
+
+        await interaction.deferUpdate();
+        isDeferred = true;
+
         squad.members = squad.members.filter(m => m.userId !== interaction.user.id);
         if (squad.members.length === 0 && squad.name !== 'Alpha')
           op.squads = op.squads.filter(s => s.name !== squad.name);
@@ -1068,12 +1111,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         data.operations[targetId] = op;
         saveData(data);
         await updateOperationMessage(client, op);
-        return interaction.followUp({ content: 'ARCUS: You have left the operation.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+        return interaction.followUp({ content: 'ARCUS: You have left the operation.', flags: [MessageFlags.Ephemeral] });
       }
 
       if (action === 'role') {
+        // FIX 5: role must reply (not deferUpdate) so the ephemeral select menu is visible
         const selectable = op.selectableRoles?.length ? op.selectableRoles : (gc.selectableRoles || ['Point Man', 'Overwatch', 'Medic', 'Demolitions']);
-        return interaction.followUp({
+        return interaction.reply({
           content: 'ARCUS: Select your role.',
           components: [new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder().setCustomId(`op:roleselect:${targetId}`).setPlaceholder('Choose a role').addOptions(selectable.map(r => ({ label: r, value: r }))).setMinValues(1).setMaxValues(1)
@@ -1083,17 +1127,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (action === 'squad') {
-        if (!canCreateSquad(interaction.member, op.guildId))
-          return interaction.followUp({ content: 'ARCUS: You lack squad creation permission.', flags: [MessageFlags.Ephemeral] });
+        if (!canCreateSquad(interaction.member, op.guildId)) {
+          return interaction.reply({ content: 'ARCUS: You lack squad creation permission.', flags: [MessageFlags.Ephemeral] });
+        }
 
-        const maxSize     = gc.maxSquadSize || 4;
-        const allFull     = op.squads.every(s => s.members.length >= maxSize);
-        if (!allFull)
-          return interaction.followUp({ content: `ARCUS: All existing squads must be full (${maxSize}) before creating a new one.`, flags: [MessageFlags.Ephemeral] });
+        const maxSize = gc.maxSquadSize || 4;
+        const allFull = op.squads.every(s => s.members.length >= maxSize);
+        if (!allFull) {
+          return interaction.reply({ content: `ARCUS: All existing squads must be full (${maxSize}) before creating a new one.`, flags: [MessageFlags.Ephemeral] });
+        }
 
         const nextName = getNextSquadName(op);
-        if (!nextName)
-          return interaction.followUp({ content: 'ARCUS: Maximum squads reached.', flags: [MessageFlags.Ephemeral] });
+        if (!nextName) {
+          return interaction.reply({ content: 'ARCUS: Maximum squads reached.', flags: [MessageFlags.Ephemeral] });
+        }
+
+        await interaction.deferUpdate();
+        isDeferred = true;
 
         const old = findUserSquad(op, interaction.user.id);
         if (old) {
@@ -1133,16 +1183,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.showModal(modal);
       }
 
-      await interaction.deferUpdate().catch(() => {});
-
       if (parts[1] === 'roleselect') {
         const opId = parts[2];
         const data = loadData();
         const op   = getOpById(data, opId);
-        if (!op || op.locked) return interaction.followUp({ content: 'ARCUS: Operation not found or locked.', flags: [MessageFlags.Ephemeral] });
+        if (!op || op.locked) return interaction.reply({ content: 'ARCUS: Operation not found or locked.', flags: [MessageFlags.Ephemeral] });
 
         const squad = findUserSquad(op, interaction.user.id);
-        if (!squad) return interaction.followUp({ content: 'ARCUS: Join the operation first.', flags: [MessageFlags.Ephemeral] });
+        if (!squad) return interaction.reply({ content: 'ARCUS: Join the operation first.', flags: [MessageFlags.Ephemeral] });
+
+        // FIX 6: defer the update before processing, then followUp
+        await interaction.deferUpdate();
+        isDeferred = true;
 
         const selected = interaction.values[0];
         const caps     = { Medic: 1, Overwatch: 1, Demolitions: 1, 'Squad Lead': 1 };
@@ -1161,13 +1213,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.followUp({ content: `ARCUS: Role set to **${selected}**.`, flags: [MessageFlags.Ephemeral] });
       }
 
+      // FIX 7: attendance runs in DM — interaction.member is null.
+      // Verify by creatorId only (already correct in original), but fix the broken isAuthorized call.
       if (parts[1] === 'attendance') {
         const opId = parts[2];
         const data = loadData();
         const op   = getOpById(data, opId);
-        if (!op) return interaction.followUp({ content: 'ARCUS: Operation not found.', flags: [MessageFlags.Ephemeral] });
-        if (interaction.user.id !== op.creatorId && !isAuthorized(interaction.member, op.guildId))
-          return interaction.followUp({ content: 'ARCUS: Only the creator or admin can confirm attendance.', flags: [MessageFlags.Ephemeral] });
+        if (!op) return interaction.reply({ content: 'ARCUS: Operation not found.' });
+
+        // In DMs, interaction.member is null — only the creator can confirm attendance via DM
+        if (interaction.user.id !== op.creatorId) {
+          return interaction.reply({ content: 'ARCUS: Only the operation creator can confirm attendance.' });
+        }
+
+        await interaction.deferUpdate();
+        isDeferred = true;
 
         const attended = new Set(interaction.values);
         op.attendance  = {};
@@ -1195,7 +1255,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           if (ch) await ch.send(`ARCUS: Attendance recorded for **${op.name}**.`);
         } catch { }
 
-        return interaction.followUp({ content: 'ARCUS: Attendance confirmed and tracked.', flags: [MessageFlags.Ephemeral] });
+        return interaction.followUp({ content: 'ARCUS: Attendance confirmed and tracked.' });
       }
     }
 
@@ -1285,18 +1345,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       // ── AAR ───────────────────────────────────────────────────────────────
+      // FIX 8: AAR modal can be submitted from DM (via aar_trigger button), so
+      // interaction.guildId may be null. We fetch the guild from op.guildId instead.
       if (parts[1] === 'modal' && parts[2] === 'aar') {
         const opId = parts[3];
         const data = loadData();
         const op   = getOpById(data, opId);
-        if (!op) return interaction.reply({ content: 'ARCUS: Operation data lost.', flags: [MessageFlags.Ephemeral] });
+        if (!op) return interaction.reply({ content: 'ARCUS: Operation data lost.' });
 
         op.aar_phases      = interaction.fields.getTextInputValue('aar_phases');
         op.aar_performance = safeGetField(interaction, 'aar_performance') || '';
         data.operations[opId] = op;
         saveData(data);
         await updateOperationMessage(client, op);
-        return interaction.reply({ content: `✅ AAR filed for **${op.name}**. Board updated.`, flags: [MessageFlags.Ephemeral] });
+        return interaction.reply({ content: `✅ AAR filed for **${op.name}**. Board updated.` });
       }
 
       // ── Create operation ──────────────────────────────────────────────────
@@ -1313,7 +1375,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         let channel;
         try { channel = await client.channels.fetch(channelId); } catch { }
-        if (!channel?.guild) return interaction.reply({ content: 'ARCUS: Target channel not found.', flags: [MessageFlags.Ephemeral] });
+        if (!channel?.guild) return interaction.reply({ content: 'ARCUS: Target channel not found.' });
 
         const guild      = channel.guild;
         const gc         = getGuildConfig(guildId);
@@ -1378,7 +1440,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         saveData(data);
 
         const reminderDisplay = reminderMinutes.length ? reminderMinutes.map(m => `${m}m`).join(', ') : 'None';
-        return interaction.reply({ content: `ARCUS: Operation **${name}** posted to <#${channelId}>.\nID: \`${opId}\` | Reminders: \`${reminderDisplay}\``, flags: [MessageFlags.Ephemeral] });
+        return interaction.reply({ content: `ARCUS: Operation **${name}** posted to <#${channelId}>.\nID: \`${opId}\` | Reminders: \`${reminderDisplay}\`` });
       }
 
       // ── Profile edit ──────────────────────────────────────────────────────
@@ -1412,9 +1474,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   } catch (error) {
     console.error('ARCUS: Interaction Error:', error);
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ content: 'ARCUS Internal Error: Failed to process interaction.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
-    }
+    try {
+      const errMsg = { content: 'ARCUS Internal Error: Failed to process interaction.', flags: [MessageFlags.Ephemeral] };
+      // FIX 9: If already deferred, use followUp — not reply — to avoid "already replied" crash
+      if (isDeferred) {
+        await interaction.followUp(errMsg).catch(() => {});
+      } else if (!interaction.replied) {
+        await interaction.reply(errMsg).catch(() => {});
+      }
+    } catch { /* silently absorb secondary errors */ }
   }
 });
 
