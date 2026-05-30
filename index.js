@@ -556,7 +556,7 @@ function buildCommandData() {
     .addSubcommandGroup(g => g.setName('commendation').setDescription('Manage the Commendation Registry')
       .addSubcommand(s => s.setName('add').setDescription('Add a commendation to the registry'))
       .addSubcommand(s => s.setName('remove').setDescription('Remove a commendation')
-        .addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true)))
+        .addStringOption(o => o.setName('name').setDescription('Medal name').setRequired(true).setAutocomplete(true)))
       .addSubcommand(s => s.setName('list').setDescription('List commendations')))
     .addSubcommandGroup(g => g.setName('bct').setDescription('Basic Combat Training')
       .addSubcommand(s => s.setName('request').setDescription('Request BCT training')))
@@ -606,7 +606,7 @@ function buildCommandData() {
       .addUserOption(o => o.setName('target').setDescription('User to view')))
     .addSubcommand(s => s.setName('award').setDescription('Admin: Award a medal')
       .addUserOption(o => o.setName('target').setDescription('Operator').setRequired(true))
-      .addStringOption(o => o.setName('medal').setDescription('Medal name').setRequired(true)))
+      .addStringOption(o => o.setName('medal').setDescription('Medal name').setRequired(true).setAutocomplete(true)))
     .addSubcommand(s => s.setName('leaderboard').setDescription('View top operators'))
     .addSubcommand(s => s.setName('motm').setDescription('Show member of the month'))
     .addSubcommand(s => s.setName('clear_stats').setDescription('Admin: Wipe all attendance statistics'));
@@ -693,6 +693,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
   let isDeferred = false;
 
   try {
+    // ─── Autocomplete Handler ──────────────────────────────────────────────
+    if (interaction.isAutocomplete()) {
+      const gc = getGuildConfig(interaction.guildId);
+      const focusedValue = interaction.options.getFocused();
+      const choices = (gc.commendations || []).map(c => c.name);
+      const filtered = choices
+        .filter(choice => choice.toLowerCase().includes(focusedValue.toLowerCase()))
+        .slice(0, 25);
+
+      return await interaction.respond(filtered.map(choice => ({ name: choice, value: choice })));
+    }
 
     // ══════════════════════════════════════════════════════════════════════════
     // SLASH COMMANDS
@@ -1331,6 +1342,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
           if (row.components.length) components.push(row);
         }
 
+        const adminRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`op:prof_award_btn:${targetUser.id}`).setLabel('Award Medal').setEmoji('🏅').setStyle(ButtonStyle.Secondary)
+        );
+        if (isAuthorized(interaction.member, interaction.guildId)) components.push(adminRow);
+
         return interaction.editReply({ embeds: [embed], components });
       }
 
@@ -1459,6 +1475,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
         stats.passedBCT = true;
         saveData(data);
         return interaction.reply({ content: `✅ <@${targetId}> marked as BCT Passed.`, flags: [MessageFlags.Ephemeral] });
+      }
+
+      // ── Award button trigger (from profile) ──────────────────────────────
+      if (namespace === 'op' && action === 'prof_award_btn') {
+        if (!isAuthorized(interaction.member, interaction.guildId))
+          return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+        
+        const gc = getGuildConfig(interaction.guildId);
+        if (!gc.commendations?.length)
+          return interaction.reply({ content: 'ARCUS: Registry empty. Use `/op commendation add`.', flags: [MessageFlags.Ephemeral] });
+
+        const options = gc.commendations.map(c => ({ label: c.name, description: c.description.substring(0, 100), value: c.name })).slice(0, 25);
+        return interaction.reply({
+          content: `Choose a commendation for <@${targetId}>:`,
+          components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`op:menu:award_select:${targetId}`).setPlaceholder('Select a medal').addOptions(options))],
+          flags: [MessageFlags.Ephemeral]
+        });
       }
 
       // ── Op approve/deny (approval workflow) ───────────────────────────────
@@ -1892,6 +1925,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } catch { }
 
         return interaction.followUp({ content: 'ARCUS: Attendance confirmed and tracked.' });
+      }
+
+      if (parts[1] === 'menu' && action === 'award_select') {
+        const awardTargetId = parts[2];
+        const medalName = interaction.values[0];
+        const gc = getGuildConfig(interaction.guildId);
+        const data = loadData();
+
+        const registered = gc.commendations.find(c => c.name === medalName);
+        const finalName = registered ? registered.name : medalName;
+        const emoji = registered?.emoji ? `${registered.emoji} ` : '';
+
+        const stats = ensureUserStats(data, awardTargetId);
+        stats.medals.push({ name: finalName, date: new Date().toISOString().split('T')[0] });
+        saveData(data);
+
+        if (gc.announcementChannelId) {
+          const annCh = await interaction.guild.channels.fetch(gc.announcementChannelId).catch(() => null);
+          if (annCh) {
+             await annCh.send({ embeds: [new EmbedBuilder().setTitle('🎖️ Commendation Issued').setDescription(`${emoji}**${finalName}** awarded to <@${awardTargetId}>.`).setColor(0xFFD700).setTimestamp()] });
+          }
+        }
+        return interaction.reply({ content: `🎖️ **${finalName}** awarded to <@${awardTargetId}>.` });
       }
     }
 
