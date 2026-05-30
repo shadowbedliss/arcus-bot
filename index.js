@@ -1,3 +1,12 @@
+console.log('__dirname:', __dirname);
+console.log('DATA_FILE:', DATA_FILE);
+console.log('exists:', fs.existsSync(DATA_FILE));
+
+try {
+    console.log('files:', fs.readdirSync(__dirname));
+} catch (e) {
+    console.error(e);
+}
 // ARCUS: Operations Management Bot
 require('dotenv').config();
 const {
