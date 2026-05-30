@@ -1478,4 +1478,3 @@ client.login(TOKEN).catch(err => {
   }
   console.error('Error Details:', err);
 });
-ENDOFFILE
