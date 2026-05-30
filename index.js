@@ -39,10 +39,60 @@ if (TOKEN.includes('your_bot_token_here') || TOKEN.length < 50) {
 const configPath = path.resolve(__dirname, 'config.json');
 const DATA_FILE  = path.join(__dirname, 'data.json');
 
+const DEFAULT_GUILD_CONFIG = {
+  authorizedRoles:       ['Admin'],
+  eventCreatorRoles:     [],
+  operationsChannelId:   '',
+  maxSquadSize:          4,
+  selectableRoles:       ['Point Man', 'Overwatch', 'Medic', 'Demolitions'],
+  templates:             [],
+  defaultRole:           'Point Man',
+  commendations:         [],
+  logsChannelId:         '',
+  announcementChannelId: ''
+};
+
+function createDefaultGuildConfig() {
+  return {
+    ...DEFAULT_GUILD_CONFIG,
+    authorizedRoles:   [...DEFAULT_GUILD_CONFIG.authorizedRoles],
+    eventCreatorRoles: [...DEFAULT_GUILD_CONFIG.eventCreatorRoles],
+    selectableRoles:   [...DEFAULT_GUILD_CONFIG.selectableRoles],
+    templates:         [],
+    commendations:     []
+  };
+}
+
+function normalizeGuildConfig(guildConfig) {
+  let changed = false;
+  const defaults = createDefaultGuildConfig();
+
+  for (const [key, value] of Object.entries(defaults)) {
+    if (guildConfig[key] === undefined) {
+      guildConfig[key] = value;
+      changed = true;
+    }
+  }
+
+  for (const key of ['authorizedRoles', 'eventCreatorRoles', 'selectableRoles', 'templates', 'commendations']) {
+    if (!Array.isArray(guildConfig[key])) {
+      guildConfig[key] = defaults[key];
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
 function loadConfig() {
   if (!fs.existsSync(configPath)) fs.writeJsonSync(configPath, { guilds: {} }, { spaces: 2 });
   const cfg = fs.readJsonSync(configPath);
-  if (!cfg.guilds) { cfg.guilds = {}; fs.writeJsonSync(configPath, cfg, { spaces: 2 }); }
+  let changed = false;
+  if (!cfg.guilds) { cfg.guilds = {}; changed = true; }
+  for (const guildConfig of Object.values(cfg.guilds)) {
+    if (normalizeGuildConfig(guildConfig)) changed = true;
+  }
+  if (changed) fs.writeJsonSync(configPath, cfg, { spaces: 2 });
   return cfg;
 }
 let config = loadConfig();
@@ -54,18 +104,9 @@ function saveConfig() {
 function getGuildConfig(guildId) {
   if (!guildId) return {};
   if (!config.guilds[guildId]) {
-    config.guilds[guildId] = {
-      authorizedRoles:      ['Admin'],
-      eventCreatorRoles:    [],
-      operationsChannelId:  '',
-      maxSquadSize:         4,
-      selectableRoles:      ['Point Man', 'Overwatch', 'Medic', 'Demolitions'],
-      templates:            [],
-      defaultRole:          'Point Man',
-      commendations:        [],
-      logsChannelId:        '',
-      announcementChannelId: ''
-    };
+    config.guilds[guildId] = createDefaultGuildConfig();
+    saveConfig();
+  } else if (normalizeGuildConfig(config.guilds[guildId])) {
     saveConfig();
   }
   return config.guilds[guildId];

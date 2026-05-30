@@ -14,7 +14,12 @@
         "Rifleman",
         "Medic",
         "Sniper"
-      ]
+      ],
+      "templates": [],
+      "defaultRole": "Point Man",
+      "commendations": [],
+      "logsChannelId": "",
+      "announcementChannelId": ""
     },
     "1408390877537239171": {
       "authorizedRoles": [
@@ -30,7 +35,10 @@
         "Demolitions"
       ],
       "templates": [],
-      "defaultRole": "Point Man"
+      "defaultRole": "Point Man",
+      "commendations": [],
+      "logsChannelId": "",
+      "announcementChannelId": ""
     }
   }
 }
