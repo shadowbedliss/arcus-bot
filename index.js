@@ -1242,6 +1242,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!isAuthorized(interaction.member, interaction.guildId))
           return interaction.reply({ content: 'ARCUS: Admin required.', flags: [MessageFlags.Ephemeral] });
 
+        await interaction.deferReply();
+        isDeferred = true;
+
         const target = interaction.options.getUser('target');
         const medal  = interaction.options.getString('medal');
 
@@ -1261,6 +1264,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
         }
         return interaction.reply({ content: `🎖️ **${medalName}** awarded to <@${target.id}>.` });
+        return interaction.editReply({ content: `🎖️ **${medalName}** awarded to <@${target.id}>.` });
       }
 
       // ── /op profile ────────────────────────────────────────────────────────
@@ -1838,6 +1842,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // ══════════════════════════════════════════════════════════════════════════
     else if (interaction.isStringSelectMenu()) {
       const parts = interaction.customId.split(':');
+      const namespace = parts[0];
+      const action    = parts[1];
 
       if (interaction.customId === 'op:load_template') {
         const [, idx, guildId, channelId] = interaction.values[0].split('_');
@@ -1854,7 +1860,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.showModal(modal);
       }
 
-      if (parts[1] === 'roleselect') {
+      if (action === 'roleselect') {
         const opId    = parts[2];
         const data    = loadData();
         const opEntry = findOpEntryById(data, opId, interaction.guildId);
@@ -1884,7 +1890,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.followUp({ content: `ARCUS: Role set to **${selected}**.`, flags: [MessageFlags.Ephemeral] });
       }
 
-      if (parts[1] === 'attendance') {
+      if (action === 'attendance') {
         const opId    = parts[2];
         const data    = loadData();
         const opEntry = findOpEntryById(data, opId);
@@ -1926,9 +1932,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.followUp({ content: 'ARCUS: Attendance confirmed and tracked.' });
       }
-
-      if (parts[1] === 'menu' && action === 'award_select') {
-        const awardTargetId = parts[2];
+      
+      if (action === 'menu' && parts[2] === 'award_select') {
+        const awardTargetId = parts[3];
         const medalName = interaction.values[0];
         const gc = getGuildConfig(interaction.guildId);
         const data = loadData();
