@@ -456,7 +456,7 @@ async function createOperationFromDraft(client, draft) {
     name:               draft.name,
     time:               draft.time,
     description:        draft.description,
-    mapUrl:             null,
+    mapUrl:             draft.mapUrl || null,
     scheduledEventId,
     reminderMinutes:    draft.reminderMinutes || [],
     remindersSent:      [],
@@ -938,7 +938,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_name').setLabel('Medal Name').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Medal of Valor')),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_desc').setLabel('Description / Purpose').setStyle(TextInputStyle.Paragraph).setRequired(true).setPlaceholder('Awarded for exceptional courage...')),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_reqs').setLabel('Requirements').setStyle(TextInputStyle.Paragraph).setRequired(true).setPlaceholder('Requires 10 successful deployments...')),
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_emoji').setLabel('Emoji / Icon').setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. 🎖️ or :custom_medal:'))
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_emoji').setLabel('Emoji / Icon').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 🎖️')),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_image').setLabel('Ribbon Image URL (Optional)').setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('https://...'))
           );
           return interaction.showModal(modal);
         }
@@ -953,7 +954,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const list = gc.commendations.map(c => {
           const emoji = c.emoji ? `${c.emoji} ` : '';
           return `### ${emoji}${c.name}\n**Purpose:** ${c.description}\n**Criteria:** ${c.requirements}`;
-        }).join('\n\n') || '_None registered._';
+        }).join('\n\n');
+        
+        if (!list) return interaction.reply({ content: 'ARCUS: Commendation registry is empty.', flags: [MessageFlags.Ephemeral] });
 
         const embed = new EmbedBuilder()
           .setTitle('🎖️ ARCUS Commendation Registry')
@@ -1263,7 +1266,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await annCh.send({ embeds: [new EmbedBuilder().setTitle('🎖️ Commendation Issued').setDescription(`${emoji}**${medalName}** awarded to <@${target.id}> for outstanding service.`).setColor(0xFFD700).setTimestamp()] });
           }
         }
-        return interaction.reply({ content: `🎖️ **${medalName}** awarded to <@${target.id}>.` });
         return interaction.editReply({ content: `🎖️ **${medalName}** awarded to <@${target.id}>.` });
       }
 
@@ -1300,6 +1302,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const councilIdx     = ranks.findIndex(r => r.name === 'Council');
         const isCouncilAbove = rankIndex >= councilIdx;
+        const gc             = getGuildConfig(interaction.guildId);
         const avatarURL      = targetUser.displayAvatarURL({ size: 256 });
 
         const embed = new EmbedBuilder()
@@ -1321,12 +1324,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
         if (stats.medals?.length) {
           const gc = getGuildConfig(interaction.guildId);
-          const medalLines = stats.medals.map(m => {
+          const rack = stats.medals.map(m => {
             const reg = gc.commendations.find(c => c.name.toLowerCase() === m.name.toLowerCase());
-            const emoji = reg?.emoji ? `${reg.emoji} ` : '• ';
-            return `${emoji}**${m.name}** (${m.date})`;
+            return reg?.emoji || '🏅';
+          }).join(' ');
+          embed.addFields({ name: 'Ribbon Rack', value: rack });
+          
+          const medalLines = stats.medals.map(m => {
+            return `• **${m.name}** (${m.date})`;
           }).join('\n');
-          embed.addFields({ name: 'Medals & Commendations', value: medalLines });
+          embed.addFields({ name: 'Service Medals', value: medalLines });
         }
         if (isCouncilAbove) {
           embed.addFields({ name: 'Council Assignment', value: stats.councilNote || '_No assignment noted_' });
@@ -1384,17 +1391,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (sub === 'motm') {
         const now      = new Date();
         const monthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+        const data     = loadData();
         const scores   = new Map();
 
         for (const op of Object.values(data.operations || {})) {
           if (op.guildId !== interaction.guildId || !op.locked) continue;
-
-          // FIX: op.time is a relative string like "Friday 20:00" — parseOpTime returns a
-          // future date, making the month filter wrong. Only use op.endedAt (ISO string).
-          // Skip ops that were never properly ended via /op end.
           if (!op.endedAt) continue;
+          
           const ts = new Date(op.endedAt).getTime();
           if (isNaN(ts)) continue;
+
           const opMonth = `${new Date(ts).getUTCFullYear()}-${String(new Date(ts).getUTCMonth() + 1).padStart(2, '0')}`;
           if (opMonth !== monthKey) continue;
 
@@ -1647,7 +1653,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_time').setLabel('Start Time').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Friday 20:00')),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_description').setLabel('Briefing / Objective').setStyle(TextInputStyle.Paragraph).setRequired(true)),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_pings').setLabel('Roles to Ping (Optional)').setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. Admin, Moderator')),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_reminder').setLabel('Reminders (mins, comma-separated)').setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('e.g. 60, 15, 5').setValue('60, 15'))
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_reminder').setLabel('Reminders (mins)').setStyle(TextInputStyle.Short).setRequired(false).setValue('60, 15'))
         );
         return interaction.showModal(modal);
       }
@@ -1850,12 +1856,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const gc       = getGuildConfig(guildId);
         const template = gc.templates[parseInt(idx)];
         const modal    = new ModalBuilder().setCustomId(`op:modal:submit:${guildId}:${channelId}`).setTitle(`Template: ${template.name}`);
+        const modal    = new ModalBuilder().setCustomId(`op:modal:submit:${guildId}:${channelId}`).setTitle('New Operation');
         modal.addComponents(
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_name').setLabel('Operation Name').setStyle(TextInputStyle.Short).setValue(template.name)),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_time').setLabel('Start Time').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Friday 20:00')),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_description').setLabel('Briefing / Objective').setStyle(TextInputStyle.Paragraph).setValue(template.description)),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_pings').setLabel('Roles to Ping (Optional)').setStyle(TextInputStyle.Short).setRequired(false).setValue(template.pings || '')),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_reminder').setLabel('Reminders (mins, comma-separated)').setStyle(TextInputStyle.Short).setRequired(false).setValue(Array.isArray(template.reminder) ? template.reminder.join(', ') : String(template.reminder || '60, 15')))
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('op_reminder').setLabel('Reminders (mins)').setStyle(TextInputStyle.Short).setRequired(false).setValue(Array.isArray(template.reminder) ? template.reminder.join(', ') : String(template.reminder || '60, 15')))
         );
         return interaction.showModal(modal);
       }
@@ -1984,12 +1991,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const desc  = interaction.fields.getTextInputValue('comm_desc');
         const reqs  = interaction.fields.getTextInputValue('comm_reqs');
         const emoji = safeGetField(interaction, 'comm_emoji') || '';
+        const image = safeGetField(interaction, 'comm_image') || '';
 
         const gc = getGuildConfig(interaction.guildId);
         if (!gc.commendations) gc.commendations = [];
         
         gc.commendations = gc.commendations.filter(c => c.name.toLowerCase() !== name.toLowerCase());
-        gc.commendations.push({ name, description: desc, requirements: reqs, emoji });
+        gc.commendations.push({ name, description: desc, requirements: reqs, emoji, image });
         saveConfig();
         return interaction.reply({ content: `ARCUS: Commendation **${name}** added to the registry.`, flags: [MessageFlags.Ephemeral] });
       }
@@ -2115,9 +2123,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const time            = interaction.fields.getTextInputValue('op_time');
         const description     = interaction.fields.getTextInputValue('op_description');
         const pingRaw         = safeGetField(interaction, 'op_pings') || '';
-        const reminderRaw     = safeGetField(interaction, 'op_reminder') || '';
+        const reminderRaw     = safeGetField(interaction, 'op_reminder') || '60, 15';
         const reminderMinutes = reminderRaw.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n > 0);
         const startTimeMs     = parseOpTime(time);
+
+        const mapMatch = description.match(/(https?:\/\/[^\s]+(?:\.jpg|\.jpeg|\.png|\.gif|\.webp)(?:\?\S+)?)/i);
+        const mapUrl   = mapMatch ? mapMatch[0] : null;
 
         if (name.length > 80)
           return interaction.reply({ content: 'ARCUS: Operation name must be 80 characters or less.', flags: [MessageFlags.Ephemeral] });
@@ -2147,7 +2158,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           time,
           description,
           pingRaw,
-          reminderMinutes
+          reminderMinutes,
+          mapUrl
         };
 
         if (gc.requireOpApproval && !isAuthorized(creatorMember, guildId)) {
