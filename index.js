@@ -99,7 +99,24 @@ function loadConfig() {
 }
 let config = loadConfig();
 
-function saveConfig() { fs.writeJsonSync(configPath, config, { spaces: 2 }); }
+// FIX #7: reload config from disk before each save so external edits aren't overwritten
+function saveConfig() {
+  try {
+    if (fs.existsSync(configPath)) {
+      const fresh = fs.readJsonSync(configPath);
+      // Merge our in-memory guild configs onto the freshly read file
+      for (const [guildId, guildCfg] of Object.entries(config.guilds || {})) {
+        fresh.guilds[guildId] = guildCfg;
+      }
+      fs.writeJsonSync(configPath, fresh, { spaces: 2 });
+      config = fresh;
+    } else {
+      fs.writeJsonSync(configPath, config, { spaces: 2 });
+    }
+  } catch (err) {
+    console.error('ARCUS: saveConfig failed:', err.message);
+  }
+}
 
 function getGuildConfig(guildId) {
   if (!guildId) return {};
@@ -265,6 +282,7 @@ function buildOperationEmbed(op) {
     embed.addFields({ name: 'Ready Check', value: `${op.readyUsers.length} ready`, inline: true });
   }
 
+  // FIX #5: user.tag is deprecated in discord.js v14 — use username instead
   return embed.setFooter({ text: `Tactical ID: ${op.id} | Creator: ${op.creatorTag}` });
 }
 
@@ -325,7 +343,8 @@ async function createBctTrainingOperation(client, interaction, recruitId, time, 
     messageId:          null,
     guildId:            guild.id,
     creatorId:          instructor.id,
-    creatorTag:         instructor.tag,
+    // FIX #5: use username instead of deprecated .tag
+    creatorTag:         instructor.username,
     name:               `BCT - ${recruit.username}`,
     time,
     description,
@@ -495,7 +514,6 @@ function buildReadySummary(op) {
 }
 
 // ─── Discord Client ───────────────────────────────────────────────────────────
-// NOTE: client is declared here so buildSettingsEmbed can safely reference it at call time
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -508,7 +526,6 @@ const client = new Client({
 });
 
 // ─── Settings Embed ───────────────────────────────────────────────────────────
-// Declared after client so client.ws.ping / client.uptime are available at call time
 function buildSettingsEmbed(guildConfig, section = 'main') {
   const data      = loadData();
   const activeOps = getActiveOpsForGuild(data, guildConfig.defaultGuildId).length;
@@ -630,6 +647,10 @@ function buildCommandData() {
     .addSubcommand(s => s.setName('profile').setDescription('View an operator service record')
       .addUserOption(o => o.setName('target').setDescription('User to view')))
     .addSubcommand(s => s.setName('award').setDescription('Admin: Award a medal')
+      .addUserOption(o => o.setName('target').setDescription('Operator').setRequired(true))
+      .addStringOption(o => o.setName('medal').setDescription('Medal name').setRequired(true).setAutocomplete(true)))
+    // FIX #1 & #4: /op revoke subcommand was missing from buildCommandData() and had no handler
+    .addSubcommand(s => s.setName('revoke').setDescription('Admin: Revoke a medal')
       .addUserOption(o => o.setName('target').setDescription('Operator').setRequired(true))
       .addStringOption(o => o.setName('medal').setDescription('Medal name').setRequired(true).setAutocomplete(true)))
     .addSubcommand(s => s.setName('leaderboard').setDescription('View top operators'))
@@ -1058,7 +1079,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.reply({ content: 'ARCUS: Only the creator or command can transfer this operation.', flags: [MessageFlags.Ephemeral] });
 
           op.creatorId  = target.id;
-          op.creatorTag = target.tag;
+          // FIX #5: use username instead of deprecated .tag
+          op.creatorTag = target.username;
           data.operations[opKey] = op;
           saveData(data);
           await updateOperationMessage(client, op);
@@ -1229,7 +1251,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const ch = await interaction.guild.channels.fetch(gc.logsChannelId).catch(() => null);
         if (!ch)  return interaction.reply({ content: 'ARCUS: Logs channel not found.', flags: [MessageFlags.Ephemeral] });
 
-        await ch.send({ embeds: [new EmbedBuilder().setAuthor({ name: interaction.user.tag, iconURL: interaction.user.displayAvatarURL() }).setDescription(interaction.options.getString('message')).setColor(0x808080).setTimestamp()] });
+        // FIX #5: use username instead of deprecated .tag
+        await ch.send({ embeds: [new EmbedBuilder().setAuthor({ name: interaction.user.username, iconURL: interaction.user.displayAvatarURL() }).setDescription(interaction.options.getString('message')).setColor(0x808080).setTimestamp()] });
         return interaction.reply({ content: 'ARCUS: Entry logged.', flags: [MessageFlags.Ephemeral] });
       }
 
@@ -1285,6 +1308,28 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
         }
         return interaction.editReply({ content: `🎖️ **${medalName}** awarded to <@${target.id}>.` });
+      }
+
+      // FIX #1 & #4: /op revoke slash command handler — was entirely missing
+      if (sub === 'revoke') {
+        if (!isAuthorized(interaction.member, interaction.guildId))
+          return interaction.reply({ content: 'ARCUS: Admin required.', flags: [MessageFlags.Ephemeral] });
+
+        await interaction.deferReply({ ephemeral: true });
+        isDeferred = true;
+
+        const target    = interaction.options.getUser('target');
+        const medalName = interaction.options.getString('medal');
+        const stats     = ensureUserStats(data, target.id);
+
+        const before = stats.medals.length;
+        stats.medals = stats.medals.filter(m => m.name.toLowerCase() !== medalName.toLowerCase());
+
+        if (stats.medals.length === before)
+          return interaction.editReply({ content: `ARCUS: **${medalName}** not found on <@${target.id}>'s record.` });
+
+        saveData(data);
+        return interaction.editReply({ content: `✅ Revoked **${medalName}** from <@${target.id}>.` });
       }
 
       // ── /op profile ────────────────────────────────────────────────────────
@@ -1366,7 +1411,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
           if (row.components.length) components.push(row);
 
-          // Award / Revoke row — only shown to admins
           const adminRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`op:prof_award_btn:${targetUser.id}`).setLabel('Award Medal').setEmoji('🏅').setStyle(ButtonStyle.Secondary),
             new ButtonBuilder().setCustomId(`op:prof_revoke_btn:${targetUser.id}`).setLabel('Revoke Medal').setEmoji('🗑️').setStyle(ButtonStyle.Danger).setDisabled(!stats.medals?.length)
@@ -1530,8 +1574,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
 
-      // ── FIX: Revoke button trigger (from profile) ─────────────────────────
-      // Previously missing — clicking "Revoke Medal" silently did nothing.
+      // ── Revoke button trigger (from profile) ─────────────────────────────
       if (namespace === 'op' && action === 'prof_revoke_btn') {
         if (!isAuthorized(interaction.member, interaction.guildId))
           return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
@@ -1539,11 +1582,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const stats = ensureUserStats(data, targetId);
         if (!stats.medals?.length)
           return interaction.reply({ content: 'ARCUS: This operator has no medals to revoke.', flags: [MessageFlags.Ephemeral] });
-        // Build select menu with "userId|medalName" values so the handler knows both
         const options = stats.medals.map((m, i) => ({
           label: m.name,
           description: `Awarded ${m.date}`,
-          value: `${targetId}|${m.name}|${i}` // include index to handle duplicate medal names
+          value: `${targetId}|${m.name}|${i}`
         })).slice(0, 25);
         return interaction.reply({
           content:    `Select a medal to revoke from <@${targetId}>:`,
@@ -1944,6 +1986,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.followUp({ content: `ARCUS: Role set to **${selected}**.`, flags: [MessageFlags.Ephemeral] });
       }
 
+      // FIX #6: attendance handler arrives via DM — use deferReply not deferUpdate
       if (action === 'attendance') {
         const opId    = parts[2];
         const data    = loadData();
@@ -1954,7 +1997,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.user.id !== op.creatorId)
           return interaction.reply({ content: 'ARCUS: Only the operation creator can confirm attendance.' });
 
-        await interaction.deferUpdate();
+        // FIX #6: deferUpdate is invalid in DMs; use deferReply instead
+        await interaction.deferReply();
         isDeferred = true;
 
         const attended = new Set(interaction.values);
@@ -1984,7 +2028,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           if (ch) await ch.send(`ARCUS: Attendance recorded for **${op.name}**.`);
         } catch { }
 
-        return interaction.followUp({ content: 'ARCUS: Attendance confirmed and tracked.' });
+        return interaction.editReply({ content: 'ARCUS: Attendance confirmed and tracked.' });
       }
 
       // ── Award medal from select (profile award button flow) ───────────────
@@ -2011,9 +2055,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ content: `🎖️ **${finalName}** awarded to <@${awardTargetId}>.`, flags: [MessageFlags.Ephemeral] });
       }
 
-      // ── FIX: Revoke medal from select (profile revoke button flow) ─────────
-      // Previously broken: the outer if used `action === 'revoke_select'` which
-      // could never be true when action === 'menu'. Now correctly checks both parts.
+      // ── Revoke medal from select (profile revoke button flow) ─────────────
       if (action === 'menu' && parts[2] === 'revoke_select') {
         if (!isAuthorized(interaction.member, interaction.guildId))
           return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
@@ -2099,7 +2141,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await targetCh.send({
           embeds: [new EmbedBuilder()
             .setTitle(`Template Suggestion: ${name}`)
-            .setAuthor({ name: interaction.user.tag, iconURL: interaction.user.displayAvatarURL() })
+            // FIX #5: use username instead of deprecated .tag
+            .setAuthor({ name: interaction.user.username, iconURL: interaction.user.displayAvatarURL() })
             .addFields({ name: 'Briefing', value: desc }, { name: 'Pings', value: pings, inline: true }, { name: 'Reminder', value: reminder, inline: true })
             .setColor(0x3498db)
             .setFooter({ text: `AuthorID: ${interaction.user.id}` })],
@@ -2160,7 +2203,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       // ── AAR submit ────────────────────────────────────────────────────────
-      // FIX: removed duplicate aarRequestMessageId edit block — only one clean edit now
       if (parts[1] === 'modal' && parts[2] === 'aar') {
         const opId    = parts[3];
         const data    = loadData();
@@ -2176,20 +2218,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
         saveData(data);
         await updateOperationMessage(client, op);
 
-        // Update the in-channel AAR request message (once, cleanly)
         if (op.aarRequestMessageId) {
           try {
             const ch  = await client.channels.fetch(op.channelId);
             const msg = await ch.messages.fetch(op.aarRequestMessageId);
             await msg.edit({
               embeds: [new EmbedBuilder()
+                // FIX #5: use username instead of deprecated .tag
                 .setTitle('✅ AAR Filed')
                 .setDescription(`The report for **${op.name}** has been successfully archived by <@${interaction.user.id}>.`)
                 .setColor(0x00FF00)
                 .setTimestamp()],
               components: []
             });
-          } catch { /* Message may have been deleted — not critical */ }
+          } catch { }
         }
 
         return interaction.reply({ content: `✅ AAR filed for **${op.name}**. Board updated.` });
@@ -2234,7 +2276,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           guildId,
           channelId,
           creatorId:  interaction.user.id,
-          creatorTag: interaction.user.tag,
+          // FIX #5: use username instead of deprecated .tag
+          creatorTag: interaction.user.username,
           name,
           time,
           description,
@@ -2324,4 +2367,3 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 client.login(TOKEN);
-
