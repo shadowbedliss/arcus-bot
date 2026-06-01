@@ -1,4 +1,4 @@
-﻿// ARCUS: Operations Management Bot
+// ARCUS: Operations Management Bot
 require('dotenv').config();
 const {
   Client,
@@ -19,7 +19,7 @@ const {
   TextInputStyle
 } = require('discord.js');
 const { REST } = require('@discordjs/rest');
-const fs = require('fs-extra');
+const fs   = require('fs-extra');
 const path = require('path');
 
 // ─── Environment Validation ───────────────────────────────────────────────────
@@ -27,7 +27,7 @@ if (!process.env.TOKEN || !process.env.CLIENT_ID) {
   console.error('ARCUS Critical: TOKEN or CLIENT_ID is missing in environment variables.');
   process.exit(1);
 }
-const TOKEN = process.env.TOKEN.trim();
+const TOKEN     = process.env.TOKEN.trim();
 const CLIENT_ID = process.env.CLIENT_ID.trim();
 
 if (TOKEN.includes('your_bot_token_here') || TOKEN.length < 50) {
@@ -295,8 +295,8 @@ async function createBctTrainingOperation(client, interaction, recruitId, time, 
   const channel   = await client.channels.fetch(channelId);
   if (!channel?.guild) throw new Error('Target operations channel not found.');
 
-  const data      = loadData();
-  const recruit   = await client.users.fetch(recruitId);
+  const data       = loadData();
+  const recruit    = await client.users.fetch(recruitId);
   const instructor = interaction.user;
 
   let scheduledEventId = null;
@@ -494,7 +494,21 @@ function buildReadySummary(op) {
   return ready.length ? ready.map(id => `<@${id}>`).join('\n') : '_No operators ready yet._';
 }
 
+// ─── Discord Client ───────────────────────────────────────────────────────────
+// NOTE: client is declared here so buildSettingsEmbed can safely reference it at call time
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildScheduledEvents
+  ],
+  partials: [Partials.Channel]
+});
+
 // ─── Settings Embed ───────────────────────────────────────────────────────────
+// Declared after client so client.ws.ping / client.uptime are available at call time
 function buildSettingsEmbed(guildConfig, section = 'main') {
   const data      = loadData();
   const activeOps = getActiveOpsForGuild(data, guildConfig.defaultGuildId).length;
@@ -611,7 +625,6 @@ function buildCommandData() {
     .addSubcommand(s => s.setName('stats').setDescription('View operator statistics')
       .addUserOption(o => o.setName('target').setDescription('User to view')))
     .addSubcommand(s => s.setName('settings').setDescription('Configure ARCUS settings'))
-    // FIX D1: removed unused 'report' string option from /op aar — bot uses a modal for input
     .addSubcommand(s => s.setName('aar').setDescription('File an After Action Report')
       .addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true)))
     .addSubcommand(s => s.setName('profile').setDescription('View an operator service record')
@@ -623,18 +636,6 @@ function buildCommandData() {
     .addSubcommand(s => s.setName('motm').setDescription('Show member of the month'))
     .addSubcommand(s => s.setName('clear_stats').setDescription('Admin: Wipe all attendance statistics'));
 }
-
-// ─── Discord Client ───────────────────────────────────────────────────────────
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildScheduledEvents
-  ],
-  partials: [Partials.Channel]
-});
 
 // ─── Ready ────────────────────────────────────────────────────────────────────
 client.once(Events.ClientReady, async () => {
@@ -713,7 +714,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const filtered = choices
         .filter(choice => choice.toLowerCase().includes(focusedValue.toLowerCase()))
         .slice(0, 25);
-
       return await interaction.respond(filtered.map(choice => ({ name: choice, value: choice })));
     }
 
@@ -734,12 +734,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const gc              = getGuildConfig(interaction.guildId);
         const targetChannelId = gc.operationsChannelId || interaction.channelId;
-        const isPrivileged = canCreateEvent(interaction.member, interaction.guildId);
-        
-        // Filter templates: Admins see all, others only see templates they authored
-        const hasTemplates = isPrivileged 
-          ? (gc.templates?.length > 0)
-          : false;
 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId(`op:setup:${interaction.guildId}:${targetChannelId}`).setLabel('📝 Setup Operation').setStyle(ButtonStyle.Primary),
@@ -958,8 +952,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_name').setLabel('Medal Name').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Medal of Valor')),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_desc').setLabel('Description / Purpose').setStyle(TextInputStyle.Paragraph).setRequired(true).setPlaceholder('Awarded for exceptional courage...')),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_reqs').setLabel('Requirements').setStyle(TextInputStyle.Paragraph).setRequired(true).setPlaceholder('Requires 10 successful deployments...')),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_emoji').setLabel('Emoji / Icon').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 🎖️')),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_image').setLabel('Ribbon Image URL (Optional)').setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('https://...'))
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_emoji').setLabel('Emoji / Icon').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 🎖️')),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('comm_image').setLabel('Ribbon Image URL (Optional)').setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('https://...'))
           );
           return interaction.showModal(modal);
         }
@@ -971,13 +965,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
           saveConfig();
           return interaction.reply({ content: `ARCUS: Commendation **${name}** removed.` });
         }
+
         const list = gc.commendations.map(c => {
           const emoji = c.emoji ? `${c.emoji} ` : '';
           return `### ${emoji}${c.name}\n**Purpose:** ${c.description}\n**Criteria:** ${c.requirements}`;
         }).join('\n\n');
-        
         if (!list) return interaction.reply({ content: 'ARCUS: Commendation registry is empty.', flags: [MessageFlags.Ephemeral] });
-
         const embed = new EmbedBuilder()
           .setTitle('🎖️ ARCUS Commendation Registry')
           .setDescription(list)
@@ -1049,7 +1042,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           if (interaction.user.id !== op.creatorId && !isAuthorized(interaction.member, interaction.guildId))
             return interaction.reply({ content: 'ARCUS: Only the creator or command can send reminders.', flags: [MessageFlags.Ephemeral] });
 
-          // FIX: defer before sendOperationReminder — it loops users.fetch() per participant
           await interaction.deferReply({ ephemeral: true });
           isDeferred = true;
           const sent = await sendOperationReminder(client, op, interaction.options.getString('message') || '');
@@ -1077,11 +1069,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
           if (!isAuthorized(interaction.member, interaction.guildId))
             return interaction.reply({ content: 'ARCUS: Admin required.', flags: [MessageFlags.Ephemeral] });
 
-          // FIX: use ephemeral:true instead of flags:MessageFlags.Ephemeral (scalar)
           await interaction.deferReply({ ephemeral: true });
           isDeferred = true;
 
-          const gc = getGuildConfig(interaction.guildId);
+          const gc         = getGuildConfig(interaction.guildId);
           const members    = await interaction.guild.members.fetch().catch(() => null);
           const userEntries = Object.entries(data.users || {});
           const active = userEntries
@@ -1278,10 +1269,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const target = interaction.options.getUser('target');
         const medal  = interaction.options.getString('medal');
 
-        const gc = getGuildConfig(interaction.guildId);
+        const gc         = getGuildConfig(interaction.guildId);
         const registered = gc.commendations.find(c => c.name.toLowerCase() === medal.toLowerCase());
-        const medalName = registered ? registered.name : medal;
-        const emoji = registered?.emoji ? `${registered.emoji} ` : '';
+        const medalName  = registered ? registered.name : medal;
+        const emoji      = registered?.emoji ? `${registered.emoji} ` : '';
 
         const stats = ensureUserStats(data, target.id);
         stats.medals.push({ name: medalName, date: new Date().toISOString().split('T')[0] });
@@ -1294,26 +1285,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
         }
         return interaction.editReply({ content: `🎖️ **${medalName}** awarded to <@${target.id}>.` });
-      }
-
-      // ── /op revoke ─────────────────────────────────────────────────────────
-      if (sub === 'revoke') {
-        if (!isAuthorized(interaction.member, interaction.guildId))
-          return interaction.reply({ content: 'ARCUS: Admin required.', flags: [MessageFlags.Ephemeral] });
-
-        await interaction.deferReply({ ephemeral: true });
-        const target = interaction.options.getUser('target');
-        const medal  = interaction.options.getString('medal');
-        const stats  = ensureUserStats(data, target.id);
-
-        const initialCount = stats.medals.length;
-        stats.medals = stats.medals.filter(m => m.name.toLowerCase() !== medal.toLowerCase());
-
-        if (stats.medals.length === initialCount)
-          return interaction.editReply({ content: `ARCUS: Operator <@${target.id}> does not possess the **${medal}** medal.` });
-
-        saveData(data);
-        return interaction.editReply({ content: `✅ Revoked **${medal}** from <@${target.id}>.` });
       }
 
       // ── /op profile ────────────────────────────────────────────────────────
@@ -1370,16 +1341,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
           embed.addFields({ name: 'Qualification Status', value: `BCT: ${stats.passedBCT ? '✅ Passed' : '❌ Pending'}\nNotes: ${stats.promotionNotes || '_None_'}` });
         }
         if (stats.medals?.length) {
-          const gc = getGuildConfig(interaction.guildId);
           const rack = stats.medals.map(m => {
             const reg = gc.commendations.find(c => c.name.toLowerCase() === m.name.toLowerCase());
             return reg?.emoji || '🏅';
           }).join(' ');
           embed.addFields({ name: 'Ribbon Rack', value: rack });
-          
-          const medalLines = stats.medals.map(m => {
-            return `• **${m.name}** (${m.date})`;
-          }).join('\n');
+          const medalLines = stats.medals.map(m => `• **${m.name}** (${m.date})`).join('\n');
           embed.addFields({ name: 'Service Medals', value: medalLines });
         }
         if (isCouncilAbove) {
@@ -1398,13 +1365,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
             row.addComponents(new ButtonBuilder().setCustomId(`op:bct_pass:${targetUser.id}`).setLabel('Mark BCT Passed').setEmoji('✅').setStyle(ButtonStyle.Success));
           }
           if (row.components.length) components.push(row);
-        }
 
-        const adminRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`op:prof_award_btn:${targetUser.id}`).setLabel('Award Medal').setEmoji('🏅').setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder().setCustomId(`op:prof_revoke_btn:${targetUser.id}`).setLabel('Revoke Medal').setEmoji('🗑️').setStyle(ButtonStyle.Danger).setDisabled(!stats.medals?.length)
-        );
-        if (isAuthorized(interaction.member, interaction.guildId)) components.push(adminRow);
+          // Award / Revoke row — only shown to admins
+          const adminRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`op:prof_award_btn:${targetUser.id}`).setLabel('Award Medal').setEmoji('🏅').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId(`op:prof_revoke_btn:${targetUser.id}`).setLabel('Revoke Medal').setEmoji('🗑️').setStyle(ButtonStyle.Danger).setDisabled(!stats.medals?.length)
+          );
+          components.push(adminRow);
+        }
 
         return interaction.editReply({ embeds: [embed], components });
       }
@@ -1439,18 +1407,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (sub === 'motm') {
         const now      = new Date();
         const monthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-        const data     = loadData();
         const scores   = new Map();
 
         for (const op of Object.values(data.operations || {})) {
-          if (op.guildId !== interaction.guildId || !op.locked) continue;
-          if (!op.endedAt) continue;
-          if (!op.endedAt) continue;
+          if (op.guildId !== interaction.guildId || !op.locked || !op.endedAt) continue;
           const ts = new Date(op.endedAt).getTime();
           if (isNaN(ts)) continue;
           const opMonth = `${new Date(ts).getUTCFullYear()}-${String(new Date(ts).getUTCMonth() + 1).padStart(2, '0')}`;
           if (opMonth !== monthKey) continue;
-
           for (const [userId, status] of Object.entries(op.attendance || {})) {
             if (status === true || status === 'Attended') scores.set(userId, (scores.get(userId) || 0) + 1);
           }
@@ -1513,20 +1477,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const targetChannelId = parts[3];
         const gc              = getGuildConfig(guildId);
         const isPrivileged    = canCreateEvent(interaction.member, guildId);
-
-        // Filter: Non-admins only see their own approved templates
-        const filtered = isPrivileged ? gc.templates : gc.templates.filter(t => t.authorId === interaction.user.id);
+        const filtered        = isPrivileged ? gc.templates : gc.templates.filter(t => t.authorId === interaction.user.id);
 
         const options = filtered.map((t, i) => ({
-          label: t.name,
+          label:       t.name,
           description: t.description.substring(0, 50),
-          value: `template_${i}_${guildId}_${targetChannelId}`
+          value:       `template_${i}_${guildId}_${targetChannelId}`
         }));
 
         return interaction.reply({
-          content: 'ARCUS: Select a template:',
+          content:    'ARCUS: Select a template:',
           components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('op:load_template').setPlaceholder('Choose template').addOptions(options))],
-          flags: [MessageFlags.Ephemeral]
+          flags:      [MessageFlags.Ephemeral]
         });
       }
 
@@ -1555,13 +1517,42 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // ── Award button trigger (from profile) ──────────────────────────────
       if (namespace === 'op' && action === 'prof_award_btn') {
-        if (!isAuthorized(interaction.member, interaction.guildId)) return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+        if (!isAuthorized(interaction.member, interaction.guildId))
+          return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
         const gc = getGuildConfig(interaction.guildId);
-        if (!gc.commendations?.length) return interaction.reply({ content: 'ARCUS: Registry empty.', flags: [MessageFlags.Ephemeral] });
+        if (!gc.commendations?.length)
+          return interaction.reply({ content: 'ARCUS: Registry empty.', flags: [MessageFlags.Ephemeral] });
         const options = gc.commendations.map(c => ({ label: c.name, description: c.description.substring(0, 100), value: c.name })).slice(0, 25);
         return interaction.reply({
-          content: `Choose a commendation for <@${targetId}>:`,
+          content:    `Choose a commendation for <@${targetId}>:`,
           components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`op:menu:award_select:${targetId}`).setPlaceholder('Select a medal').addOptions(options))],
+          flags:      [MessageFlags.Ephemeral]
+        });
+      }
+
+      // ── FIX: Revoke button trigger (from profile) ─────────────────────────
+      // Previously missing — clicking "Revoke Medal" silently did nothing.
+      if (namespace === 'op' && action === 'prof_revoke_btn') {
+        if (!isAuthorized(interaction.member, interaction.guildId))
+          return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+        const data  = loadData();
+        const stats = ensureUserStats(data, targetId);
+        if (!stats.medals?.length)
+          return interaction.reply({ content: 'ARCUS: This operator has no medals to revoke.', flags: [MessageFlags.Ephemeral] });
+        // Build select menu with "userId|medalName" values so the handler knows both
+        const options = stats.medals.map((m, i) => ({
+          label: m.name,
+          description: `Awarded ${m.date}`,
+          value: `${targetId}|${m.name}|${i}` // include index to handle duplicate medal names
+        })).slice(0, 25);
+        return interaction.reply({
+          content:    `Select a medal to revoke from <@${targetId}>:`,
+          components: [new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+              .setCustomId(`op:menu:revoke_select:${targetId}`)
+              .setPlaceholder('Select medal to revoke')
+              .addOptions(options)
+          )],
           flags: [MessageFlags.Ephemeral]
         });
       }
@@ -1619,11 +1610,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const opId      = parts[2];
         const recruitId = parts[3];
         const data      = loadData();
-        // Note: interaction.guildId is null here (DM context) — getOpById handles null guildId
-        const op = getOpById(data, opId);
+        const op        = getOpById(data, opId);
         if (!op || op.type !== 'bct')
           return interaction.reply({ content: 'ARCUS: BCT operation not found.' });
-        // In DMs member is null, so only the creator (instructor) can confirm
         if (interaction.user.id !== op.creatorId)
           return interaction.reply({ content: 'ARCUS: Only the BCT instructor can confirm completion.' });
 
@@ -1747,7 +1736,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const data   = loadData();
         const stats  = ensureUserStats(data, targetId);
-        // FIX: force:true so role cache is fresh — stale cache causes wrong rank detection
         const member = await interaction.guild.members.fetch({ user: targetId, force: true }).catch(() => null);
         if (!member) return interaction.followUp({ content: 'Operator not found in server.', flags: [MessageFlags.Ephemeral] });
 
@@ -1783,8 +1771,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // ── AAR trigger (guild channel button OR DM button) ───────────────────
       if (namespace === 'op' && action === 'aar_trigger') {
         const data    = loadData();
-        // Pass null explicitly — findOpEntryById skips guild filter when guildId is falsy,
-        // which is correct here since this button can fire from both guild and DM contexts
         const opEntry = findOpEntryById(data, targetId);
         if (!opEntry) return interaction.reply({ content: 'ARCUS: Operation not found.' });
         const { key: opKey, op } = opEntry;
@@ -1808,7 +1794,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const gc = getGuildConfig(op.guildId);
 
       if (action === 'ready') {
-        // FIX: defer before updateOperationMessage (async channel+message fetch) to avoid 3s timeout
         await interaction.deferReply({ ephemeral: true });
         isDeferred = true;
 
@@ -1865,7 +1850,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (action === 'role') {
         const selectable = op.selectableRoles?.length ? op.selectableRoles : (gc.selectableRoles || ['Point Man', 'Overwatch', 'Medic', 'Demolitions']);
         return interaction.reply({
-          content: 'ARCUS: Select your role.',
+          content:    'ARCUS: Select your role.',
           components: [new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder().setCustomId(`op:roleselect:${opKey}`).setPlaceholder('Choose a role').addOptions(selectable.map(r => ({ label: r, value: r }))).setMinValues(1).setMaxValues(1)
           )],
@@ -1910,7 +1895,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // SELECT MENUS
     // ══════════════════════════════════════════════════════════════════════════
     else if (interaction.isStringSelectMenu()) {
-      const parts = interaction.customId.split(':');
+      const parts     = interaction.customId.split(':');
       const namespace = parts[0];
       const action    = parts[1];
 
@@ -2001,16 +1986,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.followUp({ content: 'ARCUS: Attendance confirmed and tracked.' });
       }
-      
+
+      // ── Award medal from select (profile award button flow) ───────────────
       if (action === 'menu' && parts[2] === 'award_select') {
         const awardTargetId = parts[3];
-        const medalName = interaction.values[0];
-        const gc = getGuildConfig(interaction.guildId);
-        const data = loadData();
+        const medalName     = interaction.values[0];
+        const gc            = getGuildConfig(interaction.guildId);
+        const data          = loadData();
 
         const registered = gc.commendations.find(c => c.name === medalName);
-        const finalName = registered ? registered.name : medalName;
-        const emoji = registered?.emoji ? `${registered.emoji} ` : '';
+        const finalName  = registered ? registered.name : medalName;
+        const emoji      = registered?.emoji ? `${registered.emoji} ` : '';
 
         const stats = ensureUserStats(data, awardTargetId);
         stats.medals.push({ name: finalName, date: new Date().toISOString().split('T')[0] });
@@ -2019,27 +2005,42 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (gc.announcementChannelId) {
           const annCh = await interaction.guild.channels.fetch(gc.announcementChannelId).catch(() => null);
           if (annCh) {
-             await annCh.send({ embeds: [new EmbedBuilder().setTitle('🎖️ Commendation Issued').setDescription(`${emoji}**${finalName}** awarded to <@${awardTargetId}>.`).setColor(0xFFD700).setTimestamp()] });
+            await annCh.send({ embeds: [new EmbedBuilder().setTitle('🎖️ Commendation Issued').setDescription(`${emoji}**${finalName}** awarded to <@${awardTargetId}>.`).setColor(0xFFD700).setTimestamp()] });
           }
         }
-        return interaction.reply({ content: `🎖️ **${finalName}** awarded to <@${awardTargetId}>.` });
+        return interaction.reply({ content: `🎖️ **${finalName}** awarded to <@${awardTargetId}>.`, flags: [MessageFlags.Ephemeral] });
       }
 
-      if (action === 'revoke_select') {
+      // ── FIX: Revoke medal from select (profile revoke button flow) ─────────
+      // Previously broken: the outer if used `action === 'revoke_select'` which
+      // could never be true when action === 'menu'. Now correctly checks both parts.
       if (action === 'menu' && parts[2] === 'revoke_select') {
-        const [userId, medalName] = interaction.values[0].split('|');
+        if (!isAuthorized(interaction.member, interaction.guildId))
+          return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+
+        // Value format: "userId|medalName|index"
+        const [userId, medalName, idxStr] = interaction.values[0].split('|');
+        const idx  = parseInt(idxStr);
         const data = loadData();
         const stats = ensureUserStats(data, userId);
+
+        // Remove by index to safely handle duplicate medal names
+        if (!isNaN(idx) && stats.medals[idx]?.name === medalName) {
+          stats.medals.splice(idx, 1);
+          saveData(data);
+          return interaction.reply({ content: `✅ Revoked **${medalName}** from <@${userId}>.`, flags: [MessageFlags.Ephemeral] });
+        }
+        // Fallback: remove first matching name if index is stale
         const before = stats.medals.length;
         stats.medals = stats.medals.filter(m => m.name !== medalName);
         if (stats.medals.length < before) {
           saveData(data);
           return interaction.reply({ content: `✅ Revoked **${medalName}** from <@${userId}>.`, flags: [MessageFlags.Ephemeral] });
         }
-        return interaction.reply({ content: 'ARCUS: Error revoking medal.', flags: [MessageFlags.Ephemeral] });
+        return interaction.reply({ content: 'ARCUS: Medal not found — it may have already been removed.', flags: [MessageFlags.Ephemeral] });
       }
     }
-  }
+
     // ══════════════════════════════════════════════════════════════════════════
     // MODAL SUBMITS
     // ══════════════════════════════════════════════════════════════════════════
@@ -2071,7 +2072,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const gc = getGuildConfig(interaction.guildId);
         if (!gc.commendations) gc.commendations = [];
-        
         gc.commendations = gc.commendations.filter(c => c.name.toLowerCase() !== name.toLowerCase());
         gc.commendations.push({ name, description: desc, requirements: reqs, emoji, image });
         saveConfig();
@@ -2089,8 +2089,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!gc.logsChannelId) return interaction.reply({ content: 'ARCUS: Log channel not configured.', flags: [MessageFlags.Ephemeral] });
         const logCh = await interaction.guild.channels.fetch(gc.logsChannelId).catch(() => null);
         if (!logCh)  return interaction.reply({ content: 'ARCUS: Log channel not found.', flags: [MessageFlags.Ephemeral] });
-        
-        // Use the approval channel if set, otherwise default to logs
+
         const targetCh = gc.approvalChannelId ? await client.channels.fetch(gc.approvalChannelId).catch(() => logCh) : logCh;
 
         const row = new ActionRowBuilder().addComponents(
@@ -2160,11 +2159,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ content: `ARCUS: BCT training operation created for <@${recruitId}>.\nID: \`${op.id}\``, flags: [MessageFlags.Ephemeral] });
       }
 
-      // ── AAR submit (works from both guild and DM modal) ───────────────────
+      // ── AAR submit ────────────────────────────────────────────────────────
+      // FIX: removed duplicate aarRequestMessageId edit block — only one clean edit now
       if (parts[1] === 'modal' && parts[2] === 'aar') {
         const opId    = parts[3];
         const data    = loadData();
-        // No guildId filter — modal can be submitted from DM (aar_trigger in DM)
         const opEntry = findOpEntryById(data, opId);
         if (!opEntry) return interaction.reply({ content: 'ARCUS: Operation data lost.' });
         const { key: opKey, op } = opEntry;
@@ -2175,35 +2174,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
         op.aarSubmittedAt  = new Date().toISOString();
         data.operations[opKey] = op;
         saveData(data);
-
-        // Clean up the request button in the channel if it exists
-        if (op.aarRequestMessageId) {
-          try {
-            const ch = await client.channels.fetch(op.channelId);
-            const requestMsg = await ch.messages.fetch(op.aarRequestMessageId);
-            await requestMsg.edit({ 
-              embeds: [new EmbedBuilder().setTitle('✅ AAR Filed').setDescription(`The report for **${op.name}** has been successfully archived.`).setColor(0x00FF00)], 
-              components: [] 
-            });
-          } catch { /* Message might be gone */ }
-        }
-        
         await updateOperationMessage(client, op);
 
+        // Update the in-channel AAR request message (once, cleanly)
         if (op.aarRequestMessageId) {
           try {
             const ch  = await client.channels.fetch(op.channelId);
             const msg = await ch.messages.fetch(op.aarRequestMessageId);
             await msg.edit({
               embeds: [new EmbedBuilder()
-                .setTitle('ARCUS: AAR Filed')
-                .setDescription(`AAR filed for **${op.name}** by <@${interaction.user.id}>.`)
+                .setTitle('✅ AAR Filed')
+                .setDescription(`The report for **${op.name}** has been successfully archived by <@${interaction.user.id}>.`)
                 .setColor(0x00FF00)
                 .setTimestamp()],
               components: []
             });
-          } catch { }
+          } catch { /* Message may have been deleted — not critical */ }
         }
+
         return interaction.reply({ content: `✅ AAR filed for **${op.name}**. Board updated.` });
       }
 
@@ -2234,14 +2222,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const gc = getGuildConfig(guildId);
 
-        const cachedGuild    = client.guilds.cache.get(guildId);
-        const creatorMember  = cachedGuild
+        const cachedGuild   = client.guilds.cache.get(guildId);
+        const creatorMember = cachedGuild
           ? await cachedGuild.members.fetch({ user: interaction.user.id, force: false }).catch(() => null)
           : null;
 
-        if (!canCreateEvent(creatorMember, guildId)) {
+        if (!canCreateEvent(creatorMember, guildId))
           return interaction.reply({ content: 'ARCUS: Unauthorized. You lack permissions to post this operation.', flags: [MessageFlags.Ephemeral] });
-        }
 
         const draft = {
           guildId,
@@ -2273,8 +2260,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
               .setTitle('ARCUS: Operation Approval Required')
               .setDescription(`**${name}** submitted by <@${interaction.user.id}>.`)
               .addFields(
-                { name: 'Time',           value: time,                       inline: true },
-                { name: 'Target Channel', value: `<#${channelId}>`,          inline: true },
+                { name: 'Time',           value: time,                          inline: true },
+                { name: 'Target Channel', value: `<#${channelId}>`,             inline: true },
                 { name: 'Briefing',       value: description.substring(0, 1000) }
               )
               .setColor(0xFFA500)
@@ -2335,3 +2322,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
 });
+
+client.login(TOKEN);
+
