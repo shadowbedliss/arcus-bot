@@ -908,6 +908,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // ── /op template ───────────────────────────────────────────────────────
       if (group === 'template') {
         const gc = getGuildConfig(interaction.guildId);
+        const gc = getGuildConfig(interaction.guildId); // Shared config variable
 
         if (sub === 'add' || sub === 'suggest') {
           if (sub === 'add' && !isAuthorized(interaction.member, interaction.guildId))
@@ -2026,6 +2027,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (action === 'revoke_select') {
+      if (action === 'menu' && parts[2] === 'revoke_select') {
         const [userId, medalName] = interaction.values[0].split('|');
         const data = loadData();
         const stats = ensureUserStats(data, userId);
