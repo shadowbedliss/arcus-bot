@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { REST, Routes, SlashCommandBuilder, TextInputStyle } = require('discord.js');
+const { REST, Routes, SlashCommandBuilder } = require('discord.js'); // removed unused TextInputStyle
 const fs   = require('fs-extra');
 const path = require('path');
 
@@ -87,7 +87,6 @@ function buildCommands() {
     .addSubcommand(s => s.setName('stats').setDescription('View operator statistics')
       .addUserOption(o => o.setName('target').setDescription('User to view')))
     .addSubcommand(s => s.setName('settings').setDescription('Configure ARCUS settings'))
-    // /op aar — only takes an ID; report text is collected via modal in the bot
     .addSubcommand(s => s.setName('aar').setDescription('File an After Action Report')
       .addStringOption(o => o.setName('id').setDescription('Operation ID').setRequired(true)))
     .addSubcommand(s => s.setName('profile').setDescription('View an operator service record')
@@ -104,14 +103,25 @@ function buildCommands() {
     .toJSON();
 }
 
+// ─── Snowflake validation (Discord IDs are 17–19 digit numbers) ───────────────
+function isValidSnowflake(id) {
+  return /^\d{17,19}$/.test(id);
+}
+
 // ─── Guild ID resolution ──────────────────────────────────────────────────────
 function getGuildIds() {
   if (process.env.GUILD_ID) {
     return process.env.GUILD_ID.split(',').map(id => id.trim()).filter(Boolean);
   }
   if (!fs.existsSync(configPath)) return [];
-  const cfg = fs.readJsonSync(configPath);
-  return Object.keys(cfg.guilds || {});
+  // Fix: wrapped in try/catch so a malformed or missing config doesn't throw
+  try {
+    const cfg = fs.readJsonSync(configPath);
+    return Object.keys(cfg.guilds || {});
+  } catch (err) {
+    console.warn('ARCUS: Could not read config.json:', err.message);
+    return [];
+  }
 }
 
 // ─── Deploy ───────────────────────────────────────────────────────────────────
@@ -121,6 +131,13 @@ async function main() {
 
   if (!guildIds.length) {
     console.error('ARCUS: No guild IDs found. Set GUILD_ID in .env or add guilds to config.json.');
+    process.exit(1);
+  }
+
+  // Fix: validate each guild ID before attempting deployment
+  const invalidIds = guildIds.filter(id => !isValidSnowflake(id));
+  if (invalidIds.length) {
+    console.error(`ARCUS: The following guild IDs look invalid (expected 17–19 digit snowflakes): ${invalidIds.join(', ')}`);
     process.exit(1);
   }
 
