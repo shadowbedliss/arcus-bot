@@ -2040,7 +2040,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ content: 'ARCUS: Error revoking medal.', flags: [MessageFlags.Ephemeral] });
       }
     }
-
+  }
     // ══════════════════════════════════════════════════════════════════════════
     // MODAL SUBMITS
     // ══════════════════════════════════════════════════════════════════════════
@@ -2331,6 +2331,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } else if (!interaction.replied) {
         await interaction.reply(errMsg).catch(() => {});
       }
-    } catch { }
+    } catch (e) {
+      console.error('ARCUS: Error reply failed:', e);
+    }
   }
 });
