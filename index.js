@@ -908,7 +908,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // ── /op template ───────────────────────────────────────────────────────
       if (group === 'template') {
         const gc = getGuildConfig(interaction.guildId);
-        const gc = getGuildConfig(interaction.guildId); // Shared config variable
 
         if (sub === 'add' || sub === 'suggest') {
           if (sub === 'add' && !isAuthorized(interaction.member, interaction.guildId))
