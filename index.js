@@ -81,16 +81,21 @@ function normalizeGuildConfig(guildConfig) {
 }
 
 function loadConfig() {
-  if (!fs.existsSync(configPath)) fs.writeJsonSync(configPath, { guilds: {} }, { spaces: 2 });
-  const cfg = fs.readJsonSync(configPath);
-  let changed = false;
-  if (!cfg.guilds) { cfg.guilds = {}; changed = true; }
-  for (const [guildId, guildConfig] of Object.entries(cfg.guilds)) {
-    if (!guildConfig.defaultGuildId) { guildConfig.defaultGuildId = guildId; changed = true; }
-    if (normalizeGuildConfig(guildConfig)) changed = true;
+  try {
+    if (!fs.existsSync(configPath)) fs.writeJsonSync(configPath, { guilds: {} }, { spaces: 2 });
+    const cfg = fs.readJsonSync(configPath);
+    let changed = false;
+    if (!cfg.guilds) { cfg.guilds = {}; changed = true; }
+    for (const [guildId, guildConfig] of Object.entries(cfg.guilds)) {
+      if (!guildConfig.defaultGuildId) { guildConfig.defaultGuildId = guildId; changed = true; }
+      if (normalizeGuildConfig(guildConfig)) changed = true;
+    }
+    if (changed) fs.writeJsonSync(configPath, cfg, { spaces: 2 });
+    return cfg;
+  } catch (err) {
+    console.warn(`ARCUS: Config loading failed (${err.code}). Initializing empty config.`);
+    return { guilds: {} };
   }
-  if (changed) fs.writeJsonSync(configPath, cfg, { spaces: 2 });
-  return cfg;
 }
 let config = loadConfig();
 
@@ -111,12 +116,19 @@ function getGuildConfig(guildId) {
 }
 
 function loadData() {
-  if (!fs.existsSync(DATA_FILE)) fs.writeJsonSync(DATA_FILE, { operations: {}, users: {} }, { spaces: 2 });
-  const data = fs.readJsonSync(DATA_FILE);
-  data.operations ??= {};
-  data.users      ??= {};
-  data.pendingOps ??= {};
-  return data;
+  try {
+    if (!fs.existsSync(DATA_FILE)) {
+      fs.writeJsonSync(DATA_FILE, { operations: {}, users: {}, pendingOps: {} }, { spaces: 2 });
+    }
+    const data = fs.readJsonSync(DATA_FILE);
+    data.operations ??= {};
+    data.users      ??= {};
+    data.pendingOps ??= {};
+    return data;
+  } catch (err) {
+    console.warn(`ARCUS: Data loading failed (${err.code}). Initializing empty state.`);
+    return { operations: {}, users: {}, pendingOps: {} };
+  }
 }
 function saveData(data) { fs.writeJsonSync(DATA_FILE, data, { spaces: 2 }); }
 
