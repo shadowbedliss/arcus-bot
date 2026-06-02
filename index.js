@@ -615,7 +615,18 @@ function buildCommandData() {
       .addSubcommand(s => s.setName('approval_channel').setDescription('Set the operation approval channel')
         .addChannelOption(o => o.setName('channel').setDescription('Approval channel').setRequired(true)))
       .addSubcommand(s => s.setName('approval_toggle').setDescription('Enable or disable operation approval')
-        .addBooleanOption(o => o.setName('enabled').setDescription('Require approval before posting ops').setRequired(true))))
+        .addBooleanOption(o => o.setName('enabled').setDescription('Require approval before posting ops').setRequired(true)))
+      // Moved from top-level to stay within Discord's 25 subcommand limit
+      .addSubcommand(s => s.setName('set_channel').setDescription('Set the default ops channel')
+        .addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
+      .addSubcommand(s => s.setName('set_logs_channel').setDescription('Set the logs channel')
+        .addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
+      .addSubcommand(s => s.setName('set_announcement_channel').setDescription('Set the announcements channel')
+        .addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
+      .addSubcommand(s => s.setName('set_bct_channel').setDescription('Set the BCT request channel')
+        .addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
+      .addSubcommand(s => s.setName('set_bct_role').setDescription('Set the BCT instructor role')
+        .addRoleOption(o => o.setName('role').setDescription('Instructor role').setRequired(true))))
     .addSubcommandGroup(g => g.setName('status').setDescription('Availability status')
       .addSubcommand(s => s.setName('set').setDescription('Set your availability')
         .addStringOption(o => o.setName('state').setDescription('Availability').setRequired(true)
@@ -627,16 +638,6 @@ function buildCommandData() {
         .addStringOption(o => o.setName('note').setDescription('Optional note').setRequired(false)))
       .addSubcommand(s => s.setName('view').setDescription('View availability')
         .addUserOption(o => o.setName('target').setDescription('User to view').setRequired(false))))
-    .addSubcommand(s => s.setName('set_channel').setDescription('Set the default ops channel')
-      .addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
-    .addSubcommand(s => s.setName('set_logs_channel').setDescription('Set the logs channel')
-      .addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
-    .addSubcommand(s => s.setName('set_announcement_channel').setDescription('Set the announcements channel')
-      .addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
-    .addSubcommand(s => s.setName('set_bct_channel').setDescription('Set the BCT request channel')
-      .addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true)))
-    .addSubcommand(s => s.setName('set_bct_role').setDescription('Set the BCT instructor role')
-      .addRoleOption(o => o.setName('role').setDescription('Instructor role').setRequired(true)))
     .addSubcommand(s => s.setName('log').setDescription('Send a manual log entry')
       .addStringOption(o => o.setName('message').setDescription('Log content').setRequired(true)))
     .addSubcommand(s => s.setName('stats').setDescription('View operator statistics')
@@ -1154,6 +1155,52 @@ client.on(Events.InteractionCreate, async (interaction) => {
           saveConfig();
           return interaction.reply({ content: `ARCUS: Operation approval ${gc.requireOpApproval ? 'enabled' : 'disabled'}.`, flags: [MessageFlags.Ephemeral] });
         }
+
+        // ── Channel/role config (moved from top-level into /op manage) ───────
+        if (sub === 'set_channel') {
+          if (!isAuthorized(interaction.member, interaction.guildId))
+            return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+          const gc = getGuildConfig(interaction.guildId);
+          gc.operationsChannelId = interaction.options.getChannel('channel').id;
+          saveConfig();
+          return interaction.reply({ content: `ARCUS: Ops channel set to <#${gc.operationsChannelId}>.`, flags: [MessageFlags.Ephemeral] });
+        }
+
+        if (sub === 'set_logs_channel') {
+          if (!isAuthorized(interaction.member, interaction.guildId))
+            return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+          const gc = getGuildConfig(interaction.guildId);
+          gc.logsChannelId = interaction.options.getChannel('channel').id;
+          saveConfig();
+          return interaction.reply({ content: `ARCUS: Logs channel set to <#${gc.logsChannelId}>.`, flags: [MessageFlags.Ephemeral] });
+        }
+
+        if (sub === 'set_announcement_channel') {
+          if (!isAuthorized(interaction.member, interaction.guildId))
+            return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+          const gc = getGuildConfig(interaction.guildId);
+          gc.announcementChannelId = interaction.options.getChannel('channel').id;
+          saveConfig();
+          return interaction.reply({ content: `ARCUS: Announcements channel set to <#${gc.announcementChannelId}>.`, flags: [MessageFlags.Ephemeral] });
+        }
+
+        if (sub === 'set_bct_channel') {
+          if (!isAuthorized(interaction.member, interaction.guildId))
+            return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+          const gc = getGuildConfig(interaction.guildId);
+          gc.bctChannelId = interaction.options.getChannel('channel').id;
+          saveConfig();
+          return interaction.reply({ content: `ARCUS: BCT request channel set to <#${gc.bctChannelId}>.`, flags: [MessageFlags.Ephemeral] });
+        }
+
+        if (sub === 'set_bct_role') {
+          if (!isAuthorized(interaction.member, interaction.guildId))
+            return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
+          const gc = getGuildConfig(interaction.guildId);
+          gc.bctInstructorRoleId = interaction.options.getRole('role').id;
+          saveConfig();
+          return interaction.reply({ content: `ARCUS: BCT instructor role set to <@&${gc.bctInstructorRoleId}>.`, flags: [MessageFlags.Ephemeral] });
+        }
       }
 
       // ── /op status ─────────────────────────────────────────────────────────
@@ -1193,52 +1240,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('aar_performance').setLabel('Personnel Evaluation').setStyle(TextInputStyle.Paragraph).setRequired(false))
         );
         return interaction.showModal(modal);
-      }
-
-      // ── Channel configs ────────────────────────────────────────────────────
-      if (sub === 'set_channel') {
-        if (!isAuthorized(interaction.member, interaction.guildId))
-          return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
-        const gc = getGuildConfig(interaction.guildId);
-        gc.operationsChannelId = interaction.options.getChannel('channel').id;
-        saveConfig();
-        return interaction.reply({ content: `ARCUS: Ops channel set to <#${gc.operationsChannelId}>.`, flags: [MessageFlags.Ephemeral] });
-      }
-
-      if (sub === 'set_logs_channel') {
-        if (!isAuthorized(interaction.member, interaction.guildId))
-          return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
-        const gc = getGuildConfig(interaction.guildId);
-        gc.logsChannelId = interaction.options.getChannel('channel').id;
-        saveConfig();
-        return interaction.reply({ content: `ARCUS: Logs channel set to <#${gc.logsChannelId}>.`, flags: [MessageFlags.Ephemeral] });
-      }
-
-      if (sub === 'set_announcement_channel') {
-        if (!isAuthorized(interaction.member, interaction.guildId))
-          return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
-        const gc = getGuildConfig(interaction.guildId);
-        gc.announcementChannelId = interaction.options.getChannel('channel').id;
-        saveConfig();
-        return interaction.reply({ content: `ARCUS: Announcements channel set to <#${gc.announcementChannelId}>.`, flags: [MessageFlags.Ephemeral] });
-      }
-
-      if (sub === 'set_bct_channel') {
-        if (!isAuthorized(interaction.member, interaction.guildId))
-          return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
-        const gc = getGuildConfig(interaction.guildId);
-        gc.bctChannelId = interaction.options.getChannel('channel').id;
-        saveConfig();
-        return interaction.reply({ content: `ARCUS: BCT request channel set to <#${gc.bctChannelId}>.`, flags: [MessageFlags.Ephemeral] });
-      }
-
-      if (sub === 'set_bct_role') {
-        if (!isAuthorized(interaction.member, interaction.guildId))
-          return interaction.reply({ content: 'ARCUS: Unauthorized.', flags: [MessageFlags.Ephemeral] });
-        const gc = getGuildConfig(interaction.guildId);
-        gc.bctInstructorRoleId = interaction.options.getRole('role').id;
-        saveConfig();
-        return interaction.reply({ content: `ARCUS: BCT instructor role set to <@&${gc.bctInstructorRoleId}>.`, flags: [MessageFlags.Ephemeral] });
       }
 
       // ── /op log ────────────────────────────────────────────────────────────
