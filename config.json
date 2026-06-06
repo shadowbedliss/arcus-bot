@@ -19,7 +19,11 @@
       "defaultRole": "Point Man",
       "commendations": [],
       "logsChannelId": "",
-      "announcementChannelId": ""
+      "announcementChannelId": "",
+      "bctChannelId": "",
+      "bctInstructorRoleId": "",
+      "approvalChannelId": "",
+      "requireOpApproval": false
     },
     "1408390877537239171": {
       "authorizedRoles": [
@@ -38,7 +42,12 @@
       "defaultRole": "Point Man",
       "commendations": [],
       "logsChannelId": "",
-      "announcementChannelId": ""
+      "announcementChannelId": "",
+      "defaultGuildId": "1408390877537239171",
+      "bctChannelId": "",
+      "bctInstructorRoleId": "",
+      "approvalChannelId": "",
+      "requireOpApproval": false
     }
   }
 }

@@ -3,6 +3,9 @@ const { REST, Routes, SlashCommandBuilder } = require('discord.js'); // removed 
 const fs   = require('fs-extra');
 const path = require('path');
 
+const BOT_TOKEN_PATTERN = /^[A-Za-z0-9_\-\.]{24,}\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+$/;
+const CLIENT_ID_PATTERN = /^\d{17,19}$/;
+
 const TOKEN     = process.env.TOKEN?.trim();
 const CLIENT_ID = process.env.CLIENT_ID?.trim();
 const configPath = path.resolve(__dirname, 'config.json');
@@ -11,8 +14,12 @@ if (!TOKEN || !CLIENT_ID) {
   console.error('ARCUS: TOKEN and CLIENT_ID are required to deploy commands.');
   process.exit(1);
 }
-if (CLIENT_ID === 'your_actual_client_id_here') {
-  console.error('ARCUS Critical: You are still using the placeholder CLIENT_ID in your .env file.');
+if (TOKEN.includes('your_') || TOKEN.includes('placeholder') || !BOT_TOKEN_PATTERN.test(TOKEN)) {
+  console.error('ARCUS Critical: TOKEN appears invalid. Paste the actual Bot Token from the Discord Developer Portal.');
+  process.exit(1);
+}
+if (!CLIENT_ID_PATTERN.test(CLIENT_ID)) {
+  console.error('ARCUS Critical: CLIENT_ID must be a valid Discord application ID (17–19 digits).');
   process.exit(1);
 }
 
@@ -126,9 +133,25 @@ function getGuildIds() {
 }
 
 // ─── Deploy ───────────────────────────────────────────────────────────────────
+async function validateBotToken(token) {
+  const rest = new REST({ version: '10' }).setToken(token);
+  try {
+    await rest.get(Routes.user());
+    return true;
+  } catch (error) {
+    console.error('ARCUS Critical: Discord token validation failed.', error?.message || error);
+    return false;
+  }
+}
+
 async function main() {
   const command  = buildCommands();
   const guildIds = getGuildIds();
+
+  const tokenValid = await validateBotToken(TOKEN);
+  if (!tokenValid) {
+    throw new Error('Discord token validation failed. Update your .env file with a valid bot token.');
+  }
 
   if (!guildIds.length) {
     console.error('ARCUS: No guild IDs found. Set GUILD_ID in .env or add guilds to config.json.');
@@ -169,5 +192,5 @@ async function main() {
 
 main().catch(err => {
   console.error('ARCUS: Deploy failed:', err);
-  process.exit(1);
+  process.exitCode = 1;
 });

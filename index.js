@@ -1,4 +1,4 @@
-// ARCUS: Operations Management Bot
+﻿// ARCUS: Operations Management Bot
 require('dotenv').config();
 const {
   Client,
@@ -23,6 +23,9 @@ const fs   = require('fs-extra');
 const path = require('path');
 
 // ─── Environment Validation ───────────────────────────────────────────────────
+const BOT_TOKEN_PATTERN = /^[A-Za-z0-9_\-\.]{24,}\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+$/;
+const CLIENT_ID_PATTERN = /^\d{17,19}$/;
+
 if (!process.env.TOKEN || !process.env.CLIENT_ID) {
   console.error('ARCUS Critical: TOKEN or CLIENT_ID is missing in environment variables.');
   process.exit(1);
@@ -30,8 +33,13 @@ if (!process.env.TOKEN || !process.env.CLIENT_ID) {
 const TOKEN     = process.env.TOKEN.trim();
 const CLIENT_ID = process.env.CLIENT_ID.trim();
 
-if (TOKEN.includes('your_bot_token_here') || TOKEN.length < 50) {
+if (TOKEN.includes('your_') || TOKEN.includes('placeholder') || !BOT_TOKEN_PATTERN.test(TOKEN)) {
   console.error('ARCUS Critical: TOKEN appears invalid. Paste the actual Bot Token from the Discord Developer Portal.');
+  process.exit(1);
+}
+
+if (!CLIENT_ID_PATTERN.test(CLIENT_ID)) {
+  console.error('ARCUS Critical: CLIENT_ID must be a valid Discord application ID (17–19 digits).');
   process.exit(1);
 }
 
@@ -511,6 +519,17 @@ async function createOperationFromDraft(client, draft) {
 function buildReadySummary(op) {
   const ready = Array.isArray(op.readyUsers) ? op.readyUsers : [];
   return ready.length ? ready.map(id => `<@${id}>`).join('\n') : '_No operators ready yet._';
+}
+
+async function validateBotToken(token) {
+  const rest = new REST({ version: '10' }).setToken(token);
+  try {
+    await rest.get(Routes.user());
+    return true;
+  } catch (error) {
+    console.error('ARCUS Critical: Discord token validation failed.', error?.message || error);
+    return false;
+  }
 }
 
 // ─── Discord Client ───────────────────────────────────────────────────────────
@@ -2367,4 +2386,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-client.login(TOKEN);
+validateBotToken(TOKEN)
+  .then((isValid) => {
+    if (!isValid) {
+      throw new Error('Discord token validation failed. Update your .env file with a valid bot token.');
+    }
+    return client.login(TOKEN);
+  })
+  .catch((err) => {
+    console.error('ARCUS Critical: Discord login failed.', err?.message || err);
+    process.exitCode = 1;
+  });
