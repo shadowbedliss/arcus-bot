@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ARCUS Offline Web View</title>
+    <style>
+      :root { color-scheme: dark; font-family: Arial, sans-serif; background: #0f172a; color: #e5eefb; }
+      body { margin: 0; padding: 24px; background: radial-gradient(circle at top, #172554 0%, #0f172a 45%, #020617 100%); min-height: 100vh; }
+      main { max-width: 1100px; margin: 0 auto; }
+      .card { background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(148, 163, 184, 0.22); border-radius: 18px; padding: 18px; box-shadow: 0 18px 35px rgba(15,23,42,0.45); margin-bottom: 18px; }
+      h1 { margin-top: 0; font-size: 2rem; }
+      .pill { display: inline-flex; align-items: center; gap: 8px; background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.25); border-radius: 999px; padding: 7px 10px; color: #bfdbfe; font-weight: 600; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+      .stat { background: rgba(30,41,59,0.95); border: 1px solid rgba(148,163,184,0.18); border-radius: 14px; padding: 14px; }
+      .stat-label { color: #cbd5e1; font-size: .9rem; text-transform: uppercase; letter-spacing: .14em; }
+      .stat-value { font-size: 1.6rem; font-weight: 700; margin-top: 6px; }
+      ul { margin: 0; padding-left: 18px; }
+      li { margin-bottom: 8px; }
+      code { background: rgba(30,41,59,0.95); border: 1px solid rgba(148,163,184,0.18); padding: 2px 6px; border-radius: 6px; color: #bfdbfe; }
+      .muted { color: #cbd5e1; }
+      .badge { display: inline-block; padding: 5px 8px; border-radius: 999px; background: rgba(34,197,94,0.12); color: #bbf7d0; border: 1px solid rgba(34,197,94,0.25); font-size: .85rem; }
+      .op-list { display: grid; gap: 12px; }
+      .op-item { border: 1px solid rgba(148,163,184,0.18); background: rgba(30,41,59,0.96); border-radius: 14px; padding: 12px; }
+      .op-name { font-weight: 700; font-size: 1.1rem; margin-bottom: 4px; }
+      .small { font-size: .95rem; color: #cbd5e1; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <div class="pill">Offline mode · local web fallback</div>
+        <h1>ARCUS offline web view</h1>
+        <p class="muted">This page keeps the core operation overview available even when the Discord bot is unavailable. It reads from the local data files in this workspace.</p>
+        <p><span class="badge">Tip</span> If Discord is down, open this page to review operations and the last stored status.</p>
+      </section>
+
+      <section class="card">
+        <h2>At-a-glance</h2>
+        <div class="grid" id="stats"></div>
+      </section>
+
+      <section class="card">
+        <h2>Current operations</h2>
+        <div id="operations" class="op-list"></div>
+      </section>
+
+      <section class="card">
+        <h2>Admin / Web controls</h2>
+        <p class="muted">These controls update the same local data file the bot reads from, so changes show in both places.</p>
+        <div class="grid">
+          <article class="stat">
+            <div class="stat-label">Edit stats</div>
+            <form id="statsForm" class="op-item">
+              <label>Target user ID</label><br />
+              <input id="statsUserId" type="text" placeholder="Enter Discord user ID" style="width:100%;margin:6px 0 10px;" /><br />
+              <label>Attended</label><br />
+              <input id="statsAttended" type="number" min="0" style="width:100%;margin:6px 0 10px;" /><br />
+              <label>Led Ops</label><br />
+              <input id="statsLedOps" type="number" min="0" style="width:100%;margin:6px 0 10px;" /><br />
+              <label>Recruits</label><br />
+              <input id="statsRecruits" type="number" min="0" style="width:100%;margin:6px 0 10px;" /><br />
+              <label>Availability</label><br />
+              <select id="statsAvailability" style="width:100%;margin:6px 0 10px;">
+                <option value="">Keep current</option>
+                <option value="available">Available</option>
+                <option value="limited">Limited</option>
+                <option value="unavailable">Unavailable</option>
+              </select><br />
+              <button type="submit">Save stats</button>
+            </form>
+          </article>
+
+          <article class="stat">
+            <div class="stat-label">Create operation</div>
+            <form id="opForm" class="op-item">
+              <label>Name</label><br />
+              <input id="opName" type="text" required style="width:100%;margin:6px 0 10px;" /><br />
+              <label>Time</label><br />
+              <input id="opTime" type="text" placeholder="Friday 20:00" style="width:100%;margin:6px 0 10px;" /><br />
+              <label>Description</label><br />
+              <textarea id="opDescription" rows="3" style="width:100%;margin:6px 0 10px;"></textarea><br />
+              <label>Guild ID (optional)</label><br />
+              <input id="opGuildId" type="text" style="width:100%;margin:6px 0 10px;" /><br />
+              <label>Channel ID (optional)</label><br />
+              <input id="opChannelId" type="text" style="width:100%;margin:6px 0 10px;" /><br />
+              <button type="submit">Create operation</button>
+            </form>
+          </article>
+        </div>
+        <p id="feedback" class="small"></p>
+      </section>
+
+      <section class="card">
+        <h2>Offline features</h2>
+        <ul>
+          <li>Read the latest operation list from the local data store.</li>
+          <li>Review queued or active operations when Discord is unavailable.</li>
+          <li>Use this page as a backup view while the bot is being repaired or redeployed.</li>
+        </ul>
+      </section>
+    </main>
+
+    <script>
+      async function loadOffline() {
+        let payload;
+        try {
+          const response = await fetch('/api/offline');
+          payload = await response.json();
+        } catch (err) {
+          const response = await fetch('./data.json');
+          const data = await response.json();
+          payload = {
+            operations: Object.values(data.operations || {}),
+            users: Object.keys(data.users || {}).length,
+            pendingOps: Object.keys(data.pendingOps || {}).length,
+            generatedAt: new Date().toISOString(),
+            source: 'static'
+          };
+        }
+
+        const stats = document.getElementById('stats');
+        stats.innerHTML = [
+          ['Operations', payload.operations.length],
+          ['Users Recorded', payload.users],
+          ['Pending Ops', payload.pendingOps],
+          ['Updated', new Date(payload.generatedAt).toLocaleString()]
+        ].map(([label, value]) => `
+          <article class="stat">
+            <div class="stat-label">${label}</div>
+            <div class="stat-value">${value}</div>
+          </article>
+        `).join('');
+
+        const operations = document.getElementById('operations');
+        if (!payload.operations.length) {
+          operations.innerHTML = '<p class="muted">No operations are currently stored for the offline view.</p>';
+          return;
+        }
+
+        operations.innerHTML = payload.operations.map(op => `
+          <article class="op-item">
+            <div class="op-name">${op.name || 'Unnamed Operation'}</div>
+            <div class="small">ID: <code>${op.id || '—'}</code> · Creator: ${op.creatorTag || 'Unknown'}</div>
+            <div class="small">Time: ${op.time || 'Not set'} · Status: ${op.locked ? 'Locked' : 'Active'}</div>
+            <div class="small">Participants: ${Array.isArray(op.participants) ? op.participants.length : 0} · Squads: ${Array.isArray(op.squads) ? op.squads.length : 0}</div>
+            <p class="small">${op.description || 'No briefing available.'}</p>
+          </article>
+        `).join('');
+      }
+
+      async function postJson(path, body) {
+        const res = await fetch(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Request failed');
+        return data;
+      }
+
+      document.getElementById('statsForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const feedback = document.getElementById('feedback');
+        try {
+          const body = {
+            userId: document.getElementById('statsUserId').value.trim(),
+            attended: document.getElementById('statsAttended').value === '' ? undefined : Number(document.getElementById('statsAttended').value),
+            ledOps: document.getElementById('statsLedOps').value === '' ? undefined : Number(document.getElementById('statsLedOps').value),
+            recruits: document.getElementById('statsRecruits').value === '' ? undefined : Number(document.getElementById('statsRecruits').value),
+            availability: document.getElementById('statsAvailability').value || undefined
+          };
+          await postJson('/api/offline/stats', body);
+          feedback.textContent = 'Stats updated. Refresh the page to confirm the new values are visible.';
+          await loadOffline();
+        } catch (err) {
+          feedback.textContent = 'Update failed: ' + err.message;
+        }
+      });
+
+      document.getElementById('opForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const feedback = document.getElementById('feedback');
+        try {
+          const body = {
+            name: document.getElementById('opName').value.trim(),
+            time: document.getElementById('opTime').value.trim(),
+            description: document.getElementById('opDescription').value.trim(),
+            guildId: document.getElementById('opGuildId').value.trim() || undefined,
+            channelId: document.getElementById('opChannelId').value.trim() || undefined,
+            creatorId: 'web',
+            creatorTag: 'web-user'
+          };
+          await postJson('/api/offline/operation', body);
+          feedback.textContent = 'Operation created and saved. It will also post to the configured Discord channel if available.';
+          await loadOffline();
+        } catch (err) {
+          feedback.textContent = 'Operation creation failed: ' + err.message;
+        }
+      });
+
+      loadOffline();
+    </script>
+  </body>
+</html>

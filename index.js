@@ -90,7 +90,10 @@ function normalizeGuildConfig(guildConfig) {
 
 function loadConfig() {
   try {
-    if (!fs.existsSync(configPath)) fs.writeJsonSync(configPath, { guilds: {} }, { spaces: 2 });
+    if (!fs.existsSync(configPath)) {
+      fs.ensureDirSync(path.dirname(configPath));
+      fs.writeJsonSync(configPath, { guilds: {} }, { spaces: 2 });
+    }
     const cfg = fs.readJsonSync(configPath);
     let changed = false;
     if (!cfg.guilds) { cfg.guilds = {}; changed = true; }
@@ -110,6 +113,7 @@ let config = loadConfig();
 // FIX #7: reload config from disk before each save so external edits aren't overwritten
 function saveConfig() {
   try {
+    fs.ensureDirSync(path.dirname(configPath));
     if (fs.existsSync(configPath)) {
       const fresh = fs.readJsonSync(configPath);
       // Merge our in-memory guild configs onto the freshly read file
@@ -143,6 +147,7 @@ function getGuildConfig(guildId) {
 function loadData() {
   try {
     if (!fs.existsSync(DATA_FILE)) {
+      fs.ensureDirSync(path.dirname(DATA_FILE));
       fs.writeJsonSync(DATA_FILE, { operations: {}, users: {}, pendingOps: {} }, { spaces: 2 });
     }
     const data = fs.readJsonSync(DATA_FILE);
@@ -155,7 +160,10 @@ function loadData() {
     return { operations: {}, users: {}, pendingOps: {} };
   }
 }
-function saveData(data) { fs.writeJsonSync(DATA_FILE, data, { spaces: 2 }); }
+function saveData(data) {
+  fs.ensureDirSync(path.dirname(DATA_FILE));
+  fs.writeJsonSync(DATA_FILE, data, { spaces: 2 });
+}
 
 // ─── Auth Helpers ─────────────────────────────────────────────────────────────
 function isAuthorized(member, guildId) {
@@ -533,6 +541,10 @@ async function validateBotToken(token) {
 }
 
 // ─── Discord Client ───────────────────────────────────────────────────────────
+function isStaleInteractionError(error) {
+  return error?.code === 10062 || error?.status === 404 || /unknown interaction/i.test(String(error?.message || ''));
+}
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -542,6 +554,16 @@ const client = new Client({
     GatewayIntentBits.GuildScheduledEvents
   ],
   partials: [Partials.Channel]
+});
+
+client.on('error', (error) => {
+  if (isStaleInteractionError(error)) return;
+  console.error('ARCUS: Client error:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+  if (isStaleInteractionError(error)) return;
+  console.error('ARCUS: Unhandled rejection:', error);
 });
 
 // ─── Settings Embed ───────────────────────────────────────────────────────────
@@ -2372,6 +2394,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
   } catch (error) {
+    if (isStaleInteractionError(error)) {
+      console.warn('ARCUS: Ignored stale interaction callback.');
+      return;
+    }
+
     console.error('ARCUS: Interaction Error:', error);
     try {
       const errMsg = { content: 'ARCUS Internal Error: Failed to process interaction.', flags: [MessageFlags.Ephemeral] };

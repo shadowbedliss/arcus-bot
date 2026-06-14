@@ -1,0 +1,172 @@
+{
+  "operations": {
+    "1775241763213_zg6cbb": {
+      "id": "1775241763213_zg6cbb",
+      "channelId": "1485199972801581149",
+      "messageId": "1489696670764634132",
+      "guildId": "1485199972252258364",
+      "creatorId": "809130419185254400",
+      "creatorTag": "shadowbedliss",
+      "name": "Verified update",
+      "time": "Live check",
+      "objective": "destroy camp",
+      "notes": "N/A",
+      "locked": true,
+      "squads": [
+        {
+          "name": "Alpha",
+          "members": []
+        }
+      ],
+      "participants": [],
+      "attendance": {},
+      "description": "",
+      "mapUrl": null,
+      "pingRaw": ""
+    },
+    "1775242219903_zgokis": {
+      "id": "1775242219903_zgokis",
+      "channelId": "1485199972801581149",
+      "messageId": "1489698586445873173",
+      "guildId": "1485199972252258364",
+      "creatorId": "809130419185254400",
+      "creatorTag": "shadowbedliss",
+      "name": "GREEN LIGHT",
+      "time": "Saturday 6:00 PM",
+      "objective": "Destroy enemy camp",
+      "notes": "blah",
+      "locked": true,
+      "squads": [
+        {
+          "name": "Alpha",
+          "members": []
+        }
+      ],
+      "participants": [],
+      "attendance": {}
+    },
+    "1775296195777_cqz34u": {
+      "id": "1775296195777_cqz34u",
+      "channelId": "1485199972801581149",
+      "messageId": "1489924980602044436",
+      "guildId": "1485199972252258364",
+      "creatorId": "809130419185254400",
+      "creatorTag": "shadowbedliss",
+      "name": "TEST",
+      "time": "Saturday 18:00",
+      "description": "destroy enemy camp",
+      "reminderMinutes": 60,
+      "reminderSent": true,
+      "locked": true,
+      "squads": [
+        {
+          "name": "Alpha",
+          "members": [
+            {
+              "userId": "809130419185254400",
+              "username": "shadowbedliss",
+              "role": "Squad Lead"
+            }
+          ]
+        }
+      ],
+      "participants": [
+        {
+          "userId": "809130419185254400",
+          "username": "shadowbedliss"
+        }
+      ],
+      "attendance": {
+        "809130419185254400": true
+      }
+    },
+    "1775314704586_rciz11": {
+      "id": "1775314704586_rciz11",
+      "channelId": "1485199972801581149",
+      "messageId": "1490002615725985852",
+      "guildId": "1485199972252258364",
+      "creatorId": "809130419185254400",
+      "creatorTag": "shadowbedliss",
+      "name": "TEST2",
+      "time": "Sunday 20:00 UTC",
+      "description": "bla",
+      "reminderMinutes": 60,
+      "reminderSent": false,
+      "locked": true,
+      "squads": [
+        {
+          "name": "Alpha",
+          "members": [
+            {
+              "userId": "809130419185254400",
+              "username": "shadowbedliss",
+              "role": "Squad Lead"
+            }
+          ]
+        }
+      ],
+      "participants": [
+        {
+          "userId": "809130419185254400",
+          "username": "shadowbedliss"
+        }
+      ],
+      "attendance": {
+        "809130419185254400": true
+      }
+    },
+    "1775553385573_ub82y0": {
+      "id": "1775553385573_ub82y0",
+      "channelId": "1485199972801581149",
+      "messageId": "1491003721239494749",
+      "guildId": "1485199972252258364",
+      "creatorId": "809130419185254400",
+      "creatorTag": "shadowbedliss",
+      "name": "TEST 3",
+      "time": "Today 12:00 AM",
+      "description": "x",
+      "scheduledEventId": null,
+      "reminderMinutes": 46,
+      "reminderSent": false,
+      "locked": false,
+      "squads": [
+        {
+          "name": "Alpha",
+          "members": [
+            {
+              "userId": "809130419185254400",
+              "username": "shadowbedliss",
+              "role": "Squad Lead"
+            }
+          ]
+        }
+      ],
+      "participants": [
+        {
+          "userId": "809130419185254400",
+          "username": "shadowbedliss"
+        }
+      ],
+      "attendance": {}
+    }
+  },
+  "users": {
+    "809130419185254400": {
+      "joined": 2,
+      "attended": 2
+    },
+    "980133822987403334": {
+      "joined": 0,
+      "attended": 0,
+      "medals": [],
+      "passedBCT": true,
+      "promotionNotes": "",
+      "ledOps": 0,
+      "recruits": 0,
+      "councilNote": "",
+      "availability": "unknown",
+      "availabilityNote": ""
+    }
+  },
+  "pendingOps": {}
+}
